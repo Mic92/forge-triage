@@ -104,13 +104,10 @@ class TriageApp(App[None]):
         """Create the split-pane layout."""
         yield Header()
         with Vertical(id="main-container"):
-            total = self._conn.execute(
-                "SELECT count(*) FROM notifications"
-            ).fetchone()[0]
+            total = self._conn.execute("SELECT count(*) FROM notifications").fetchone()[0]
             if total == 0:
                 yield Static(
-                    "Inbox is empty. Run [bold]forge-triage sync[/bold] "
-                    "to fetch notifications.",
+                    "Inbox is empty. Run [bold]forge-triage sync[/bold] to fetch notifications.",
                     id="empty-message",
                 )
             else:
@@ -144,7 +141,7 @@ class TriageApp(App[None]):
         except NoMatches:
             return None
 
-    def on_data_table_cursor_moved(self) -> None:
+    def on_data_table_row_highlighted(self) -> None:
         """Update detail pane when cursor moves."""
         nlist = self._get_notification_list()
         detail = self._get_detail_pane()
@@ -161,9 +158,7 @@ class TriageApp(App[None]):
             (notification_id,),
         ).fetchone()
         if row is not None and not row["comments_loaded"]:
-            self._request_queue.put_nowait(
-                FetchCommentsRequest(notification_id=notification_id)
-            )
+            self._request_queue.put_nowait(FetchCommentsRequest(notification_id=notification_id))
 
     async def _poll_responses(self) -> None:
         """Drain the response queue and update the UI."""
@@ -194,9 +189,7 @@ class TriageApp(App[None]):
                     filter_text=self._filter_text,
                     filter_reason=self._filter_reason,
                 )
-            self.notify(
-                f"Error: {', '.join(result.errors)}", severity="error"
-            )
+            self.notify(f"Error: {', '.join(result.errors)}", severity="error")
 
     def _on_fetch_comments_result(self, result: FetchCommentsResult) -> None:
         """Handle fetched comments — refresh detail if viewing this notification."""
@@ -220,9 +213,7 @@ class TriageApp(App[None]):
 
     def _on_error_result(self, result: ErrorResult) -> None:
         """Handle error — show notification."""
-        self.notify(
-            f"Error ({result.request_type}): {result.error}", severity="error"
-        )
+        self.notify(f"Error ({result.request_type}): {result.error}", severity="error")
 
     # === Actions ===
 

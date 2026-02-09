@@ -99,6 +99,63 @@ async def test_mark_done_posts_request(tmp_db: sqlite3.Connection) -> None:
         assert req.notification_ids == ["1001"]
 
 
+async def test_vim_jk_navigation(tmp_db: sqlite3.Connection) -> None:
+    """Pressing j/k moves cursor down/up like arrow keys."""
+    _populate_db(tmp_db)
+    app = TriageApp(conn=tmp_db)
+
+    async with app.run_test() as pilot:
+        nlist = app.query_one(NotificationList)
+        # Starts on first row (highest priority)
+        assert nlist.cursor_row == 0
+        assert nlist.selected_notification_id == "1001"
+
+        # j moves down
+        await pilot.press("j")
+        await pilot.pause()
+        assert nlist.cursor_row == 1
+        assert nlist.selected_notification_id == "1002"
+
+        # j again moves to third row
+        await pilot.press("j")
+        await pilot.pause()
+        assert nlist.cursor_row == 2
+        assert nlist.selected_notification_id == "1003"
+
+        # k moves back up
+        await pilot.press("k")
+        await pilot.pause()
+        assert nlist.cursor_row == 1
+        assert nlist.selected_notification_id == "1002"
+
+
+async def test_detail_pane_updates_on_cursor_move(tmp_db: sqlite3.Connection) -> None:
+    """Detail pane updates when the cursor moves to a different notification."""
+    _populate_db(tmp_db)
+    app = TriageApp(conn=tmp_db)
+
+    async with app.run_test() as pilot:
+        detail = app.query_one("#detail-pane")
+        rendered = detail.render()
+        assert hasattr(rendered, "plain")
+        # Initially shows first notification
+        assert "Fix critical bug" in rendered.plain
+
+        # Move down to second notification
+        await pilot.press("j")
+        await pilot.pause()
+        rendered = detail.render()
+        assert hasattr(rendered, "plain")
+        assert "Add new feature" in rendered.plain
+
+        # Move down again to third notification
+        await pilot.press("j")
+        await pilot.pause()
+        rendered = detail.render()
+        assert hasattr(rendered, "plain")
+        assert "Update docs" in rendered.plain
+
+
 async def test_quit(tmp_db: sqlite3.Connection) -> None:
     """Pressing q exits the TUI."""
     _populate_db(tmp_db)

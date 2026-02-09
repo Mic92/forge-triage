@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
+from textual.binding import Binding
 from textual.widgets import DataTable
 
 if TYPE_CHECKING:
     import sqlite3
+
+    from textual.binding import BindingType
 
 
 _TIER_INDICATORS = {"blocking": "🔴", "action": "🟡", "fyi": "⚪"}
@@ -15,6 +18,11 @@ _TIER_INDICATORS = {"blocking": "🔴", "action": "🟡", "fyi": "⚪"}
 
 class NotificationList(DataTable[str]):
     """A DataTable displaying notifications sorted by priority."""
+
+    BINDINGS: ClassVar[list[BindingType]] = [
+        Binding("j", "cursor_down", "Cursor down", show=False),
+        Binding("k", "cursor_up", "Cursor up", show=False),
+    ]
 
     def __init__(self, conn: sqlite3.Connection, *, id: str | None = None) -> None:  # noqa: A002
         super().__init__(cursor_type="row", id=id)
@@ -42,9 +50,7 @@ class NotificationList(DataTable[str]):
         params: list[str] = []
 
         if filter_text:
-            query += (
-                " AND (subject_title LIKE ? OR repo_owner || '/' || repo_name LIKE ?)"
-            )
+            query += " AND (subject_title LIKE ? OR repo_owner || '/' || repo_name LIKE ?)"
             like = f"%{filter_text}%"
             params.extend([like, like])
 
