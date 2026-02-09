@@ -1,0 +1,22 @@
+schema: spec-driven
+
+context: |
+  Tech stack: Python 3.13, Textual, httpx, SQLite, Nix flake
+  Practice TDD: write failing tests first, then implement to make them pass
+  Code quality: ruff format, ruff check, mypy strict
+  Testing: use pytest, prefer realistic inputs/outputs over mocks
+  Packaging: Nix flake with devShell and package output
+  Auth: reuse gh CLI auth token
+  XDG: follow XDG base directory spec for data/config paths
+
+rules:
+  specs:
+    - Every spec MUST include a "Testing" section defining acceptance tests
+    - Specs should describe observable behavior, not implementation details
+  design:
+    - Design MUST include a "Testing Strategy" section covering unit, integration, and end-to-end tests
+    - Identify which components need mocking (GitHub API) vs real testing (SQLite, TUI)
+  tasks:
+    - Every implementation task MUST start with "Write failing test for ..." before the implementation step
+    - Tasks should follow red-green-refactor cycle
+    - Include a lint/typecheck step after each feature task
