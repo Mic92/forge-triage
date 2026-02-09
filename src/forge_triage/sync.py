@@ -12,7 +12,13 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 from forge_triage.db import (
+    get_notification_count,
+    get_notification_field,
     get_sync_meta,
+    get_top_notifications_for_preload,
+    mark_comments_loaded,
+    purge_all_notifications,
+    purge_stale_notifications,
     set_sync_meta,
     upsert_comments,
     upsert_notification,
@@ -100,12 +106,7 @@ async def _preload_comments_for_top_n(
     top_n: int = COMMENT_PRELOAD_COUNT,
 ) -> None:
     """Pre-load comments for the top N notifications by priority."""
-    # Sort by priority_score descending (already computed)
-    rows = conn.execute(
-        "SELECT notification_id, raw_json, comments_loaded FROM notifications "
-        "ORDER BY priority_score DESC LIMIT ?",
-        (top_n,),
-    ).fetchall()
+    rows = get_top_notifications_for_preload(conn, top_n)
 
     sem = asyncio.Semaphore(COMMENT_CONCURRENCY)
 
@@ -128,11 +129,7 @@ async def _preload_comments_for_top_n(
                 for c in comments
             ]
             upsert_comments(conn, db_comments)
-            conn.execute(
-                "UPDATE notifications SET comments_loaded = 1 WHERE notification_id = ?",
-                (notification_id,),
-            )
-            conn.commit()
+            mark_comments_loaded(conn, notification_id)
 
     tasks = [
         _load_one(row["notification_id"], row["raw_json"])
@@ -156,25 +153,15 @@ def _purge_stale(
     """
     if not fetched_notifications:
         # Empty response → inbox is empty on GitHub
-        count: int = conn.execute("SELECT count(*) FROM notifications").fetchone()[0]
+        count = get_notification_count(conn)
         if count > 0:
-            conn.execute("DELETE FROM notifications")
-            conn.commit()
+            purge_all_notifications(conn)
         return count
 
     fetched_ids = {n["id"] for n in fetched_notifications}
     oldest = min(n["updated_at"] for n in fetched_notifications)
 
-    placeholders = ",".join("?" for _ in fetched_ids)
-    cursor = conn.execute(
-        f"DELETE FROM notifications WHERE notification_id NOT IN ({placeholders})"  # noqa: S608
-        " AND updated_at <= ?",
-        [*fetched_ids, oldest],
-    )
-    purged = cursor.rowcount
-    if purged:
-        conn.commit()
-    return purged
+    return purge_stale_notifications(conn, fetched_ids, oldest)
 
 
 async def sync(
@@ -209,13 +196,10 @@ async def sync(
         row = _notification_to_row(notif, ci_status, subject_state, score, tier)
 
         # Check if this is new or updated
-        existing = conn.execute(
-            "SELECT updated_at FROM notifications WHERE notification_id = ?",
-            (notification_id,),
-        ).fetchone()
-        if existing is None:
+        existing_updated_at = get_notification_field(conn, notification_id, "updated_at")
+        if existing_updated_at is None:
             new_count += 1
-        elif existing["updated_at"] != notif["updated_at"]:
+        elif existing_updated_at != notif["updated_at"]:
             updated_count += 1
 
         upsert_notification(conn, row)
@@ -234,6 +218,6 @@ async def sync(
         latest = max(n["updated_at"] for n in raw_notifications)
         set_sync_meta(conn, "last_sync_at", latest)
 
-    total = conn.execute("SELECT count(*) FROM notifications").fetchone()[0]
+    total = get_notification_count(conn)
 
     return SyncResult(new=new_count, updated=updated_count, purged=purged_count, total=total)

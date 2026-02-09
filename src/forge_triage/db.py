@@ -225,6 +225,178 @@ def delete_notification(conn: sqlite3.Connection, notification_id: str) -> None:
     conn.commit()
 
 
+# --- Query functions (consolidated from across the codebase) ---
+
+
+def get_notification(conn: sqlite3.Connection, notification_id: str) -> sqlite3.Row | None:
+    """Return a single notification by ID, or None."""
+    result: sqlite3.Row | None = conn.execute(
+        "SELECT * FROM notifications WHERE notification_id = ?",
+        (notification_id,),
+    ).fetchone()
+    return result
+
+
+def get_notification_field(
+    conn: sqlite3.Connection,
+    notification_id: str,
+    field: str,
+) -> object | None:
+    """Return a single field from a notification, or None if not found.
+
+    The field name is validated against the schema to prevent SQL injection.
+    """
+    valid = {d[1] for d in conn.execute("PRAGMA table_info(notifications)").fetchall()}
+    if field not in valid:
+        msg = f"Invalid field: {field}"
+        raise ValueError(msg)
+    row = conn.execute(
+        f"SELECT {field} FROM notifications WHERE notification_id = ?",  # noqa: S608
+        (notification_id,),
+    ).fetchone()
+    return row[field] if row is not None else None
+
+
+def get_notification_count(conn: sqlite3.Connection) -> int:
+    """Return the total number of notifications."""
+    count: int = conn.execute("SELECT count(*) FROM notifications").fetchone()[0]
+    return count
+
+
+def list_notifications(
+    conn: sqlite3.Connection,
+    *,
+    filter_text: str = "",
+    filter_reason: str = "",
+) -> list[sqlite3.Row]:
+    """Return notifications ordered by priority, with optional filters."""
+    query = "SELECT * FROM notifications WHERE 1=1"
+    params: list[str] = []
+
+    if filter_text:
+        query += " AND (subject_title LIKE ? OR repo_owner || '/' || repo_name LIKE ?)"
+        like = f"%{filter_text}%"
+        params.extend([like, like])
+
+    if filter_reason:
+        query += " AND reason = ?"
+        params.append(filter_reason)
+
+    query += " ORDER BY priority_score DESC, updated_at DESC"
+    return conn.execute(query, params).fetchall()
+
+
+def get_unloaded_top_notifications(
+    conn: sqlite3.Connection,
+    limit: int,
+) -> list[sqlite3.Row]:
+    """Return top-N notifications by priority where comments are not yet loaded."""
+    return conn.execute(
+        "SELECT notification_id FROM notifications "
+        "WHERE comments_loaded = 0 "
+        "ORDER BY priority_score DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+
+
+def get_top_notifications_for_preload(
+    conn: sqlite3.Connection,
+    limit: int,
+) -> list[sqlite3.Row]:
+    """Return top-N notifications by priority for comment pre-loading."""
+    return conn.execute(
+        "SELECT notification_id, raw_json, comments_loaded FROM notifications "
+        "ORDER BY priority_score DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+
+
+def mark_comments_loaded(conn: sqlite3.Connection, notification_id: str) -> None:
+    """Set comments_loaded = 1 for a notification."""
+    conn.execute(
+        "UPDATE notifications SET comments_loaded = 1 WHERE notification_id = ?",
+        (notification_id,),
+    )
+    conn.commit()
+
+
+def update_last_viewed(conn: sqlite3.Connection, notification_id: str) -> None:
+    """Set last_viewed_at to now for a notification."""
+    conn.execute(
+        "UPDATE notifications SET last_viewed_at = datetime('now') WHERE notification_id = ?",
+        (notification_id,),
+    )
+    conn.commit()
+
+
+def get_notifications_by_reason(
+    conn: sqlite3.Connection,
+    reason: str,
+) -> list[sqlite3.Row]:
+    """Return notification IDs matching a reason."""
+    return conn.execute(
+        "SELECT notification_id FROM notifications WHERE reason = ?",
+        (reason,),
+    ).fetchall()
+
+
+def get_notifications_by_repo_title(
+    conn: sqlite3.Connection,
+    repo: str,
+    title_pattern: str,
+) -> list[sqlite3.Row]:
+    """Return notification IDs matching a repo and title pattern."""
+    return conn.execute(
+        "SELECT notification_id FROM notifications "
+        "WHERE repo_owner || '/' || repo_name = ? "
+        "AND subject_title LIKE ?",
+        (repo, title_pattern),
+    ).fetchall()
+
+
+def get_notification_stats(
+    conn: sqlite3.Connection,
+) -> tuple[int, list[sqlite3.Row], list[sqlite3.Row], list[sqlite3.Row]]:
+    """Return (total, by_tier, by_repo, by_reason) stats."""
+    total: int = conn.execute("SELECT count(*) FROM notifications").fetchone()[0]
+    by_tier = conn.execute(
+        "SELECT priority_tier, count(*) as cnt FROM notifications "
+        "GROUP BY priority_tier ORDER BY cnt DESC"
+    ).fetchall()
+    by_repo = conn.execute(
+        "SELECT repo_owner || '/' || repo_name as repo, count(*) as cnt "
+        "FROM notifications GROUP BY repo ORDER BY cnt DESC"
+    ).fetchall()
+    by_reason = conn.execute(
+        "SELECT reason, count(*) as cnt FROM notifications GROUP BY reason ORDER BY cnt DESC"
+    ).fetchall()
+    return total, by_tier, by_repo, by_reason
+
+
+def purge_all_notifications(conn: sqlite3.Connection) -> None:
+    """Delete all notifications."""
+    conn.execute("DELETE FROM notifications")
+    conn.commit()
+
+
+def purge_stale_notifications(
+    conn: sqlite3.Connection,
+    keep_ids: set[str],
+    oldest_updated_at: str,
+) -> int:
+    """Delete notifications not in keep_ids with updated_at <= oldest_updated_at."""
+    placeholders = ",".join("?" for _ in keep_ids)
+    cursor = conn.execute(
+        f"DELETE FROM notifications WHERE notification_id NOT IN ({placeholders})"  # noqa: S608
+        " AND updated_at <= ?",
+        [*keep_ids, oldest_updated_at],
+    )
+    purged = cursor.rowcount
+    if purged:
+        conn.commit()
+    return purged
+
+
 _WRITE_KEYWORDS = ("INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE")
 
 

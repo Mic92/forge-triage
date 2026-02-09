@@ -8,6 +8,8 @@ from rich.text import Text
 from textual.binding import Binding
 from textual.widgets import DataTable
 
+from forge_triage.db import list_notifications
+
 if TYPE_CHECKING:
     import sqlite3
 
@@ -61,21 +63,11 @@ class NotificationList(DataTable[str | Text]):
         self._notification_ids.clear()
         self._row_keys.clear()
 
-        query = "SELECT * FROM notifications WHERE 1=1"
-        params: list[str] = []
-
-        if filter_text:
-            query += " AND (subject_title LIKE ? OR repo_owner || '/' || repo_name LIKE ?)"
-            like = f"%{filter_text}%"
-            params.extend([like, like])
-
-        if filter_reason:
-            query += " AND reason = ?"
-            params.append(filter_reason)
-
-        query += " ORDER BY priority_score DESC, updated_at DESC"
-
-        rows = self._conn.execute(query, params).fetchall()
+        rows = list_notifications(
+            self._conn,
+            filter_text=filter_text,
+            filter_reason=filter_reason,
+        )
         for row in rows:
             icon = _state_icon(row["subject_type"], row["subject_state"])
             repo = f"{row['repo_owner']}/{row['repo_name']}"

@@ -8,7 +8,16 @@ import json
 import sys
 from typing import TYPE_CHECKING
 
-from forge_triage.db import SqlWriteBlockedError, delete_notification, execute_sql, open_db
+from forge_triage.db import (
+    SqlWriteBlockedError,
+    delete_notification,
+    execute_sql,
+    get_notification_stats,
+    get_notifications_by_reason,
+    get_notifications_by_repo_title,
+    list_notifications,
+    open_db,
+)
 from forge_triage.github import get_github_token, mark_as_read
 from forge_triage.sync import DEFAULT_MAX_NOTIFICATIONS, sync
 
@@ -47,9 +56,7 @@ def _cmd_ls(args: argparse.Namespace) -> None:
     """List notifications sorted by priority."""
     conn = open_db()
     try:
-        rows = conn.execute(
-            "SELECT * FROM notifications ORDER BY priority_score DESC, updated_at DESC"
-        ).fetchall()
+        rows = list_notifications(conn)
         if not rows:
             print("Inbox is empty. Run `forge-triage sync` to fetch notifications.")
             return
@@ -86,7 +93,7 @@ def _cmd_stats(_args: argparse.Namespace) -> None:
     """Show notification statistics."""
     conn = open_db()
     try:
-        total = conn.execute("SELECT count(*) FROM notifications").fetchone()[0]
+        total, by_tier, by_repo, by_reason = get_notification_stats(conn)
         if total == 0:
             print("No notifications.")
             return
@@ -96,27 +103,19 @@ def _cmd_stats(_args: argparse.Namespace) -> None:
 
         # Per tier
         print("By priority:")
-        for row in conn.execute(
-            "SELECT priority_tier, count(*) as cnt FROM notifications "
-            "GROUP BY priority_tier ORDER BY cnt DESC"
-        ):
+        for row in by_tier:
             print(f"  {_tier_indicator(row['priority_tier'])} {row['priority_tier']}: {row['cnt']}")
         print()
 
         # Per repo
         print("By repo:")
-        for row in conn.execute(
-            "SELECT repo_owner || '/' || repo_name as repo, count(*) as cnt "
-            "FROM notifications GROUP BY repo ORDER BY cnt DESC"
-        ):
+        for row in by_repo:
             print(f"  {row['repo']}: {row['cnt']}")
         print()
 
         # Per reason
         print("By reason:")
-        for row in conn.execute(
-            "SELECT reason, count(*) as cnt FROM notifications GROUP BY reason ORDER BY cnt DESC"
-        ):
+        for row in by_reason:
             print(f"  {row['reason']}: {row['cnt']}")
     finally:
         conn.close()
@@ -157,21 +156,13 @@ def _cmd_done(args: argparse.Namespace) -> None:
     conn = open_db()
     try:
         if args.reason:
-            rows = conn.execute(
-                "SELECT notification_id FROM notifications WHERE reason = ?",
-                (args.reason,),
-            ).fetchall()
+            rows = get_notifications_by_reason(conn, args.reason)
         elif args.ref:
             # Parse owner/repo#number format
             ref: str = args.ref
             if "#" in ref:
                 repo_part, _number = ref.rsplit("#", 1)
-                rows = conn.execute(
-                    "SELECT notification_id FROM notifications "
-                    "WHERE repo_owner || '/' || repo_name = ? "
-                    "AND subject_title LIKE ?",
-                    (repo_part, f"%#{_number}%"),
-                ).fetchall()
+                rows = get_notifications_by_repo_title(conn, repo_part, f"%#{_number}%")
             else:
                 print(f"Invalid ref format: {ref}. Expected owner/repo#number", file=sys.stderr)
                 sys.exit(1)

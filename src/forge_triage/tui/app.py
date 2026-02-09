@@ -12,7 +12,7 @@ from textual.containers import Vertical
 from textual.css.query import NoMatches
 from textual.widgets import Footer, Header, Input, Static
 
-from forge_triage.db import open_db
+from forge_triage.db import get_notification_count, get_notification_field, open_db
 from forge_triage.messages import (
     ErrorResult,
     FetchCommentsRequest,
@@ -103,7 +103,7 @@ class TriageApp(App[None]):
         """Create the split-pane layout."""
         yield Header()
         with Vertical(id="main-container"):
-            total = self._conn.execute("SELECT count(*) FROM notifications").fetchone()[0]
+            total = get_notification_count(self._conn)
             if total == 0:
                 yield Static(
                     "Inbox is empty. Run [bold]forge-triage sync[/bold] to fetch notifications.",
@@ -152,11 +152,8 @@ class TriageApp(App[None]):
 
     def _maybe_fetch_comments(self, notification_id: str) -> None:
         """Post FetchCommentsRequest if comments aren't loaded."""
-        row = self._conn.execute(
-            "SELECT comments_loaded FROM notifications WHERE notification_id = ?",
-            (notification_id,),
-        ).fetchone()
-        if row is not None and not row["comments_loaded"]:
+        comments_loaded = get_notification_field(self._conn, notification_id, "comments_loaded")
+        if comments_loaded is not None and not comments_loaded:
             self._request_queue.put_nowait(FetchCommentsRequest(notification_id=notification_id))
 
     async def _poll_responses(self) -> None:
@@ -245,12 +242,9 @@ class TriageApp(App[None]):
         nid = nlist.selected_notification_id
         if nid is None:
             return
-        row = self._conn.execute(
-            "SELECT html_url FROM notifications WHERE notification_id = ?",
-            (nid,),
-        ).fetchone()
-        if row and row["html_url"]:
-            webbrowser.open(row["html_url"])
+        html_url = get_notification_field(self._conn, nid, "html_url")
+        if html_url:
+            webbrowser.open(str(html_url))
 
     def action_start_filter(self) -> None:
         """Show the filter input."""

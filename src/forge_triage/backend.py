@@ -7,7 +7,13 @@ import json
 import logging
 from typing import TYPE_CHECKING
 
-from forge_triage.db import delete_notification, upsert_comments
+from forge_triage.db import (
+    delete_notification,
+    get_notification_field,
+    get_unloaded_top_notifications,
+    mark_comments_loaded,
+    upsert_comments,
+)
 from forge_triage.github import fetch_comments, mark_as_read
 from forge_triage.messages import (
     ErrorResult,
@@ -51,14 +57,11 @@ async def _handle_fetch_comments(
     token: str,
 ) -> FetchCommentsResult:
     """Fetch comments for a single notification."""
-    row = conn.execute(
-        "SELECT raw_json FROM notifications WHERE notification_id = ?",
-        (req.notification_id,),
-    ).fetchone()
-    if row is None:
+    raw_json = get_notification_field(conn, req.notification_id, "raw_json")
+    if raw_json is None:
         return FetchCommentsResult(notification_id=req.notification_id, comment_count=0)
 
-    notif = json.loads(row["raw_json"])
+    notif = json.loads(str(raw_json))
     subject_url: str = notif["subject"]["url"]
 
     # Build comments URL
@@ -82,11 +85,7 @@ async def _handle_fetch_comments(
         for c in raw_comments
     ]
     upsert_comments(conn, db_comments)
-    conn.execute(
-        "UPDATE notifications SET comments_loaded = 1 WHERE notification_id = ?",
-        (req.notification_id,),
-    )
-    conn.commit()
+    mark_comments_loaded(conn, req.notification_id)
     return FetchCommentsResult(notification_id=req.notification_id, comment_count=len(db_comments))
 
 
@@ -96,12 +95,7 @@ async def _handle_preload(
     token: str,
 ) -> PreLoadComplete:
     """Pre-load comments for top N notifications by priority."""
-    rows = conn.execute(
-        "SELECT notification_id FROM notifications "
-        "WHERE comments_loaded = 0 "
-        "ORDER BY priority_score DESC LIMIT ?",
-        (req.top_n,),
-    ).fetchall()
+    rows = get_unloaded_top_notifications(conn, req.top_n)
 
     sem = asyncio.Semaphore(COMMENT_CONCURRENCY)
     loaded: list[str] = []

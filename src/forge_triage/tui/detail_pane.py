@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 from textual.widgets import Static
 
-from forge_triage.db import get_comments
+from forge_triage.db import get_comments, get_notification, update_last_viewed
 
 if TYPE_CHECKING:
     import sqlite3
@@ -25,21 +25,14 @@ class DetailPane(Static):
             self.update("No notification selected.")
             return
 
-        row = self._conn.execute(
-            "SELECT * FROM notifications WHERE notification_id = ?",
-            (notification_id,),
-        ).fetchone()
+        row = get_notification(self._conn, notification_id)
 
         if row is None:
             self.update("Notification not found.")
             return
 
         # Update last_viewed_at
-        self._conn.execute(
-            "UPDATE notifications SET last_viewed_at = datetime('now') WHERE notification_id = ?",
-            (notification_id,),
-        )
-        self._conn.commit()
+        update_last_viewed(self._conn, notification_id)
 
         parts: list[str] = []
         parts.append(f"[bold]{row['subject_title']}[/bold]")
