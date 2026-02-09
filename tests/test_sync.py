@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from forge_triage.db import get_sync_meta, upsert_notification
+from forge_triage.db import get_notification, get_notification_count, get_sync_meta, upsert_notification
 from forge_triage.sync import sync
 from tests.conftest import NotificationRow
 
@@ -122,12 +122,12 @@ async def test_initial_sync(tmp_db: sqlite3.Connection, httpx_mock: HTTPXMock) -
     assert result.updated == 0
     assert result.total == 1
 
-    row = tmp_db.execute("SELECT * FROM notifications WHERE notification_id = '1001'").fetchone()
+    row = get_notification(tmp_db, "1001")
     assert row is not None
-    assert row["priority_score"] == 1000
-    assert row["ci_status"] == "success"
-    assert row["subject_state"] == "open"
-    assert row["comments_loaded"] == 1
+    assert row.priority_score == 1000
+    assert row.ci_status == "success"
+    assert row.subject_state == "open"
+    assert row.comments_loaded == 1
 
     assert get_sync_meta(tmp_db, "last_sync_at") == "2026-02-09T07:00:00Z"
 
@@ -174,17 +174,20 @@ async def test_sync_mixed_notifications(tmp_db: sqlite3.Connection, httpx_mock: 
     assert result.new == 3
     assert result.total == 3
 
-    pr = tmp_db.execute("SELECT * FROM notifications WHERE notification_id = '1001'").fetchone()
-    assert pr["subject_state"] == "merged"
-    assert pr["ci_status"] == "success"
+    pr = get_notification(tmp_db, "1001")
+    assert pr is not None
+    assert pr.subject_state == "merged"
+    assert pr.ci_status == "success"
 
-    issue = tmp_db.execute("SELECT * FROM notifications WHERE notification_id = '1002'").fetchone()
-    assert issue["subject_state"] == "closed"
-    assert issue["ci_status"] is None
+    issue = get_notification(tmp_db, "1002")
+    assert issue is not None
+    assert issue.subject_state == "closed"
+    assert issue.ci_status is None
 
-    disc = tmp_db.execute("SELECT * FROM notifications WHERE notification_id = '2001'").fetchone()
-    assert disc["subject_state"] is None
-    assert disc["subject_url"] is None
+    disc = get_notification(tmp_db, "2001")
+    assert disc is not None
+    assert disc.subject_state is None
+    assert disc.subject_url is None
 
 
 async def test_purge_stale_notifications(tmp_db: sqlite3.Connection, httpx_mock: HTTPXMock) -> None:
@@ -206,7 +209,7 @@ async def test_purge_stale_notifications(tmp_db: sqlite3.Connection, httpx_mock:
                 updated_at=ts,
             ).as_dict(),
         )
-    assert tmp_db.execute("SELECT count(*) FROM notifications").fetchone()[0] == 5
+    assert get_notification_count(tmp_db) == 5
 
     # Sync returns only 3 notifications (IDs 5001, 5002, 5003) with oldest = Feb 2
     # Notifications 5000 (Feb 1) should be purged (older than cutoff)
@@ -252,15 +255,9 @@ async def test_purge_stale_notifications(tmp_db: sqlite3.Connection, httpx_mock:
 
     assert result.purged == 1  # only 5000 purged
     # 5000 gone (older than cutoff)
-    assert (
-        tmp_db.execute("SELECT 1 FROM notifications WHERE notification_id = '5000'").fetchone()
-        is None
-    )
+    assert get_notification(tmp_db, "5000") is None
     # 5004 kept (newer than cutoff)
-    assert (
-        tmp_db.execute("SELECT 1 FROM notifications WHERE notification_id = '5004'").fetchone()
-        is not None
-    )
+    assert get_notification(tmp_db, "5004") is not None
     assert result.total == 4  # 3 returned + 1 kept
 
 
@@ -268,7 +265,7 @@ async def test_purge_all_on_empty_sync(tmp_db: sqlite3.Connection, httpx_mock: H
     """Empty sync response purges all local notifications."""
     upsert_notification(tmp_db, NotificationRow(notification_id="9001").as_dict())
     upsert_notification(tmp_db, NotificationRow(notification_id="9002").as_dict())
-    assert tmp_db.execute("SELECT count(*) FROM notifications").fetchone()[0] == 2
+    assert get_notification_count(tmp_db) == 2
 
     httpx_mock.add_response(
         url="https://api.github.com/notifications",

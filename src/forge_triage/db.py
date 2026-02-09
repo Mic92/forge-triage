@@ -5,10 +5,114 @@ from __future__ import annotations
 import importlib.resources
 import os
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 _SCHEMA = importlib.resources.files(__package__).joinpath("schema.sql").read_text()
+
+
+# --- Data classes ---
+
+
+@dataclass
+class Notification:
+    """A GitHub notification row."""
+
+    notification_id: str
+    repo_owner: str
+    repo_name: str
+    subject_type: str
+    subject_title: str
+    subject_url: str | None
+    html_url: str | None
+    reason: str
+    updated_at: str
+    unread: int
+    priority_score: int
+    priority_tier: str
+    raw_json: str
+    comments_loaded: int
+    last_viewed_at: str | None
+    ci_status: str | None
+    subject_state: str | None
+
+    def to_dict(self) -> dict[str, str | int | None]:
+        """Return a dict suitable for JSON serialization."""
+        return asdict(self)
+
+
+@dataclass
+class Comment:
+    """A comment on a notification."""
+
+    comment_id: str
+    notification_id: str
+    author: str
+    body: str
+    created_at: str
+    updated_at: str
+
+
+@dataclass
+class NotificationPreload:
+    """Lightweight notification data for comment pre-loading."""
+
+    notification_id: str
+    raw_json: str
+    comments_loaded: int
+
+
+@dataclass
+class CountStat:
+    """A label + count pair for statistics."""
+
+    label: str
+    count: int
+
+
+@dataclass
+class NotificationStats:
+    """Aggregate notification statistics."""
+
+    total: int
+    by_tier: list[CountStat]
+    by_repo: list[CountStat]
+    by_reason: list[CountStat]
+
+
+def _row_to_notification(row: sqlite3.Row) -> Notification:
+    """Convert a sqlite3.Row to a Notification dataclass."""
+    return Notification(
+        notification_id=row["notification_id"],
+        repo_owner=row["repo_owner"],
+        repo_name=row["repo_name"],
+        subject_type=row["subject_type"],
+        subject_title=row["subject_title"],
+        subject_url=row["subject_url"],
+        html_url=row["html_url"],
+        reason=row["reason"],
+        updated_at=row["updated_at"],
+        unread=row["unread"],
+        priority_score=row["priority_score"],
+        priority_tier=row["priority_tier"],
+        raw_json=row["raw_json"],
+        comments_loaded=row["comments_loaded"],
+        last_viewed_at=row["last_viewed_at"],
+        ci_status=row["ci_status"],
+        subject_state=row["subject_state"],
+    )
+
+
+def _row_to_comment(row: sqlite3.Row) -> Comment:
+    """Convert a sqlite3.Row to a Comment dataclass."""
+    return Comment(
+        comment_id=row["comment_id"],
+        notification_id=row["notification_id"],
+        author=row["author"],
+        body=row["body"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+    )
 
 
 # --- Schema migration system ---
@@ -151,12 +255,13 @@ def upsert_comments(conn: sqlite3.Connection, comments: list[dict[str, str]]) ->
     conn.commit()
 
 
-def get_comments(conn: sqlite3.Connection, notification_id: str) -> list[sqlite3.Row]:
+def get_comments(conn: sqlite3.Connection, notification_id: str) -> list[Comment]:
     """Return comments for a notification, ordered by created_at."""
-    return conn.execute(
+    rows = conn.execute(
         "SELECT * FROM comments WHERE notification_id = ? ORDER BY created_at",
         (notification_id,),
     ).fetchall()
+    return [_row_to_comment(r) for r in rows]
 
 
 def get_sync_meta(conn: sqlite3.Connection, key: str) -> str | None:
@@ -187,33 +292,13 @@ def delete_notification(conn: sqlite3.Connection, notification_id: str) -> None:
 # --- Query functions (consolidated from across the codebase) ---
 
 
-def get_notification(conn: sqlite3.Connection, notification_id: str) -> sqlite3.Row | None:
+def get_notification(conn: sqlite3.Connection, notification_id: str) -> Notification | None:
     """Return a single notification by ID, or None."""
-    result: sqlite3.Row | None = conn.execute(
+    row = conn.execute(
         "SELECT * FROM notifications WHERE notification_id = ?",
         (notification_id,),
     ).fetchone()
-    return result
-
-
-def get_notification_field(
-    conn: sqlite3.Connection,
-    notification_id: str,
-    field: str,
-) -> object | None:
-    """Return a single field from a notification, or None if not found.
-
-    The field name is validated against the schema to prevent SQL injection.
-    """
-    valid = {d[1] for d in conn.execute("PRAGMA table_info(notifications)").fetchall()}
-    if field not in valid:
-        msg = f"Invalid field: {field}"
-        raise ValueError(msg)
-    row = conn.execute(
-        f"SELECT {field} FROM notifications WHERE notification_id = ?",  # noqa: S608
-        (notification_id,),
-    ).fetchone()
-    return row[field] if row is not None else None
+    return _row_to_notification(row) if row is not None else None
 
 
 def get_notification_count(conn: sqlite3.Connection) -> int:
@@ -227,7 +312,7 @@ def list_notifications(
     *,
     filter_text: str = "",
     filter_reason: str = "",
-) -> list[sqlite3.Row]:
+) -> list[Notification]:
     """Return notifications ordered by priority, with optional filters."""
     query = "SELECT * FROM notifications WHERE 1=1"
     params: list[str] = []
@@ -242,32 +327,41 @@ def list_notifications(
         params.append(filter_reason)
 
     query += " ORDER BY priority_score DESC, updated_at DESC"
-    return conn.execute(query, params).fetchall()
+    return [_row_to_notification(r) for r in conn.execute(query, params).fetchall()]
 
 
-def get_unloaded_top_notifications(
+def get_unloaded_top_notification_ids(
     conn: sqlite3.Connection,
     limit: int,
-) -> list[sqlite3.Row]:
-    """Return top-N notifications by priority where comments are not yet loaded."""
-    return conn.execute(
+) -> list[str]:
+    """Return IDs of top-N notifications by priority where comments are not yet loaded."""
+    rows = conn.execute(
         "SELECT notification_id FROM notifications "
         "WHERE comments_loaded = 0 "
         "ORDER BY priority_score DESC LIMIT ?",
         (limit,),
     ).fetchall()
+    return [row["notification_id"] for row in rows]
 
 
 def get_top_notifications_for_preload(
     conn: sqlite3.Connection,
     limit: int,
-) -> list[sqlite3.Row]:
+) -> list[NotificationPreload]:
     """Return top-N notifications by priority for comment pre-loading."""
-    return conn.execute(
+    rows = conn.execute(
         "SELECT notification_id, raw_json, comments_loaded FROM notifications "
         "ORDER BY priority_score DESC LIMIT ?",
         (limit,),
     ).fetchall()
+    return [
+        NotificationPreload(
+            notification_id=r["notification_id"],
+            raw_json=r["raw_json"],
+            comments_loaded=r["comments_loaded"],
+        )
+        for r in rows
+    ]
 
 
 def mark_comments_loaded(conn: sqlite3.Connection, notification_id: str) -> None:
@@ -288,48 +382,58 @@ def update_last_viewed(conn: sqlite3.Connection, notification_id: str) -> None:
     conn.commit()
 
 
-def get_notifications_by_reason(
+def get_notification_ids_by_reason(
     conn: sqlite3.Connection,
     reason: str,
-) -> list[sqlite3.Row]:
+) -> list[str]:
     """Return notification IDs matching a reason."""
-    return conn.execute(
+    rows = conn.execute(
         "SELECT notification_id FROM notifications WHERE reason = ?",
         (reason,),
     ).fetchall()
+    return [row["notification_id"] for row in rows]
 
 
-def get_notifications_by_repo_title(
+def get_notification_ids_by_repo_title(
     conn: sqlite3.Connection,
     repo: str,
     title_pattern: str,
-) -> list[sqlite3.Row]:
+) -> list[str]:
     """Return notification IDs matching a repo and title pattern."""
-    return conn.execute(
+    rows = conn.execute(
         "SELECT notification_id FROM notifications "
         "WHERE repo_owner || '/' || repo_name = ? "
         "AND subject_title LIKE ?",
         (repo, title_pattern),
     ).fetchall()
+    return [row["notification_id"] for row in rows]
 
 
-def get_notification_stats(
-    conn: sqlite3.Connection,
-) -> tuple[int, list[sqlite3.Row], list[sqlite3.Row], list[sqlite3.Row]]:
-    """Return (total, by_tier, by_repo, by_reason) stats."""
+def get_notification_stats(conn: sqlite3.Connection) -> NotificationStats:
+    """Return aggregate notification statistics."""
     total: int = conn.execute("SELECT count(*) FROM notifications").fetchone()[0]
-    by_tier = conn.execute(
-        "SELECT priority_tier, count(*) as cnt FROM notifications "
-        "GROUP BY priority_tier ORDER BY cnt DESC"
-    ).fetchall()
-    by_repo = conn.execute(
-        "SELECT repo_owner || '/' || repo_name as repo, count(*) as cnt "
-        "FROM notifications GROUP BY repo ORDER BY cnt DESC"
-    ).fetchall()
-    by_reason = conn.execute(
-        "SELECT reason, count(*) as cnt FROM notifications GROUP BY reason ORDER BY cnt DESC"
-    ).fetchall()
-    return total, by_tier, by_repo, by_reason
+    by_tier = [
+        CountStat(label=r["priority_tier"], count=r["cnt"])
+        for r in conn.execute(
+            "SELECT priority_tier, count(*) as cnt FROM notifications "
+            "GROUP BY priority_tier ORDER BY cnt DESC"
+        ).fetchall()
+    ]
+    by_repo = [
+        CountStat(label=r["repo"], count=r["cnt"])
+        for r in conn.execute(
+            "SELECT repo_owner || '/' || repo_name as repo, count(*) as cnt "
+            "FROM notifications GROUP BY repo ORDER BY cnt DESC"
+        ).fetchall()
+    ]
+    by_reason = [
+        CountStat(label=r["reason"], count=r["cnt"])
+        for r in conn.execute(
+            "SELECT reason, count(*) as cnt FROM notifications "
+            "GROUP BY reason ORDER BY cnt DESC"
+        ).fetchall()
+    ]
+    return NotificationStats(total=total, by_tier=by_tier, by_repo=by_repo, by_reason=by_reason)
 
 
 def purge_all_notifications(conn: sqlite3.Connection) -> None:

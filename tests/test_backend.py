@@ -6,7 +6,7 @@ import asyncio
 from typing import TYPE_CHECKING
 
 from forge_triage.backend import backend_worker
-from forge_triage.db import upsert_notification
+from forge_triage.db import get_notification, upsert_notification
 from forge_triage.messages import (
     ErrorResult,
     FetchCommentsRequest,
@@ -52,7 +52,6 @@ async def test_mark_done_through_worker(tmp_db: sqlite3.Connection, httpx_mock: 
     assert result.errors == []
 
     # Verify notification deleted from DB
-    row = tmp_db.execute("SELECT * FROM notifications WHERE notification_id = '1001'").fetchone()
-    assert row is None
+    assert get_notification(tmp_db, "1001") is None
 
     task.cancel()

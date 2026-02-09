@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from forge_triage.db import (
     delete_notification,
     get_comments,
+    get_notification,
     get_sync_meta,
     init_db,
     upsert_comments,
@@ -25,21 +26,17 @@ def test_upsert_resets_comments_loaded_on_update(tmp_db: sqlite3.Connection) -> 
     upsert_notification(tmp_db, row.as_dict())
 
     # Verify comments_loaded was set
-    result = tmp_db.execute(
-        "SELECT comments_loaded FROM notifications WHERE notification_id = ?",
-        (row.notification_id,),
-    ).fetchone()
-    assert result["comments_loaded"] == 1
+    result = get_notification(tmp_db, row.notification_id)
+    assert result is not None
+    assert result.comments_loaded == 1
 
     # Update with new timestamp
     updated = NotificationRow(updated_at="2026-02-10T08:00:00Z", comments_loaded=1)
     upsert_notification(tmp_db, updated.as_dict())
 
-    result = tmp_db.execute(
-        "SELECT comments_loaded FROM notifications WHERE notification_id = ?",
-        (row.notification_id,),
-    ).fetchone()
-    assert result["comments_loaded"] == 0
+    result = get_notification(tmp_db, row.notification_id)
+    assert result is not None
+    assert result.comments_loaded == 0
 
 
 def test_comments_insert_query_and_ordering(tmp_db: sqlite3.Connection) -> None:
@@ -68,8 +65,8 @@ def test_comments_insert_query_and_ordering(tmp_db: sqlite3.Connection) -> None:
 
     result = get_comments(tmp_db, "1001")
     assert len(result) == 2
-    assert result[0]["author"] == "bob"
-    assert result[1]["author"] == "alice"
+    assert result[0].author == "bob"
+    assert result[1].author == "alice"
 
 
 def test_comments_cascade_delete(tmp_db: sqlite3.Connection) -> None:

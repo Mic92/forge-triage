@@ -6,23 +6,20 @@ import argparse
 import asyncio
 import json
 import sys
-from typing import TYPE_CHECKING
 
 from forge_triage.db import (
+    Notification,
     SqlWriteBlockedError,
     delete_notification,
     execute_sql,
+    get_notification_ids_by_reason,
+    get_notification_ids_by_repo_title,
     get_notification_stats,
-    get_notifications_by_reason,
-    get_notifications_by_repo_title,
     list_notifications,
     open_db,
 )
 from forge_triage.github import get_github_token, mark_as_read
 from forge_triage.sync import DEFAULT_MAX_NOTIFICATIONS, sync
-
-if TYPE_CHECKING:
-    import sqlite3
 
 COL_TITLE_MAX = 48
 COL_REPO_MAX = 28
@@ -61,7 +58,7 @@ def _cmd_ls(args: argparse.Namespace) -> None:
             print("Inbox is empty. Run `forge-triage sync` to fetch notifications.")
             return
         if args.json:
-            print(json.dumps([dict(r) for r in rows], indent=2))
+            print(json.dumps([r.to_dict() for r in rows], indent=2))
         else:
             _print_notification_table(rows)
     finally:
@@ -73,50 +70,50 @@ def _tier_indicator(tier: str) -> str:
     return indicators.get(tier, "⚪")
 
 
-def _print_notification_table(rows: list[sqlite3.Row]) -> None:
+def _print_notification_table(rows: list[Notification]) -> None:
     """Print notifications as a formatted table."""
     # Header
     print(f"{'':2} {'Repo':<30} {'Title':<50} {'Reason':<20}")
     print("─" * 104)
     for row in rows:
-        indicator = _tier_indicator(row["priority_tier"])
-        repo = f"{row['repo_owner']}/{row['repo_name']}"
-        title = row["subject_title"]
+        indicator = _tier_indicator(row.priority_tier)
+        repo = f"{row.repo_owner}/{row.repo_name}"
+        title = row.subject_title
         if len(title) > COL_TITLE_MAX:
             title = title[: COL_TITLE_MAX - 1] + "…"
         if len(repo) > COL_REPO_MAX:
             repo = repo[: COL_REPO_MAX - 1] + "…"
-        print(f"{indicator} {repo:<30} {title:<50} {row['reason']:<20}")
+        print(f"{indicator} {repo:<30} {title:<50} {row.reason:<20}")
 
 
 def _cmd_stats(_args: argparse.Namespace) -> None:
     """Show notification statistics."""
     conn = open_db()
     try:
-        total, by_tier, by_repo, by_reason = get_notification_stats(conn)
-        if total == 0:
+        stats = get_notification_stats(conn)
+        if stats.total == 0:
             print("No notifications.")
             return
 
-        print(f"Total: {total}")
+        print(f"Total: {stats.total}")
         print()
 
         # Per tier
         print("By priority:")
-        for row in by_tier:
-            print(f"  {_tier_indicator(row['priority_tier'])} {row['priority_tier']}: {row['cnt']}")
+        for s in stats.by_tier:
+            print(f"  {_tier_indicator(s.label)} {s.label}: {s.count}")
         print()
 
         # Per repo
         print("By repo:")
-        for row in by_repo:
-            print(f"  {row['repo']}: {row['cnt']}")
+        for s in stats.by_repo:
+            print(f"  {s.label}: {s.count}")
         print()
 
         # Per reason
         print("By reason:")
-        for row in by_reason:
-            print(f"  {row['reason']}: {row['cnt']}")
+        for s in stats.by_reason:
+            print(f"  {s.label}: {s.count}")
     finally:
         conn.close()
 
@@ -156,13 +153,13 @@ def _cmd_done(args: argparse.Namespace) -> None:
     conn = open_db()
     try:
         if args.reason:
-            rows = get_notifications_by_reason(conn, args.reason)
+            nids = get_notification_ids_by_reason(conn, args.reason)
         elif args.ref:
             # Parse owner/repo#number format
             ref: str = args.ref
             if "#" in ref:
                 repo_part, _number = ref.rsplit("#", 1)
-                rows = get_notifications_by_repo_title(conn, repo_part, f"%#{_number}%")
+                nids = get_notification_ids_by_repo_title(conn, repo_part, f"%#{_number}%")
             else:
                 print(f"Invalid ref format: {ref}. Expected owner/repo#number", file=sys.stderr)
                 sys.exit(1)
@@ -170,13 +167,12 @@ def _cmd_done(args: argparse.Namespace) -> None:
             print("Specify a ref (owner/repo#number) or --reason", file=sys.stderr)
             sys.exit(1)
 
-        if not rows:
+        if not nids:
             print("No matching notifications found.")
             return
 
         count = 0
-        for row in rows:
-            nid = row["notification_id"]
+        for nid in nids:
             asyncio.run(mark_as_read(token, nid))
             delete_notification(conn, nid)
             count += 1

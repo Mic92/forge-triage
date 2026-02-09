@@ -63,17 +63,16 @@ class NotificationList(DataTable[str | Text]):
         self._notification_ids.clear()
         self._row_keys.clear()
 
-        rows = list_notifications(
+        notifications = list_notifications(
             self._conn,
             filter_text=filter_text,
             filter_reason=filter_reason,
         )
-        for row in rows:
-            icon = _state_icon(row["subject_type"], row["subject_state"])
-            repo = f"{row['repo_owner']}/{row['repo_name']}"
-            title = row["subject_title"]
-            nid = row["notification_id"]
-            row_key = self.add_row(icon, repo, title, row["reason"], key=nid)
+        for notif in notifications:
+            icon = _state_icon(notif.subject_type, notif.subject_state)
+            repo = f"{notif.repo_owner}/{notif.repo_name}"
+            nid = notif.notification_id
+            row_key = self.add_row(icon, repo, notif.subject_title, notif.reason, key=nid)
             self._notification_ids.append(nid)
             self._row_keys.append(str(row_key))
 

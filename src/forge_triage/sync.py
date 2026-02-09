@@ -12,8 +12,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 from forge_triage.db import (
+    get_notification,
     get_notification_count,
-    get_notification_field,
     get_sync_meta,
     get_top_notifications_for_preload,
     mark_comments_loaded,
@@ -132,9 +132,9 @@ async def _preload_comments_for_top_n(
             mark_comments_loaded(conn, notification_id)
 
     tasks = [
-        _load_one(row["notification_id"], row["raw_json"])
-        for row in rows
-        if not row["comments_loaded"]
+        _load_one(r.notification_id, r.raw_json)
+        for r in rows
+        if not r.comments_loaded
     ]
     if tasks:
         await asyncio.gather(*tasks)
@@ -196,10 +196,10 @@ async def sync(
         row = _notification_to_row(notif, ci_status, subject_state, score, tier)
 
         # Check if this is new or updated
-        existing_updated_at = get_notification_field(conn, notification_id, "updated_at")
-        if existing_updated_at is None:
+        existing = get_notification(conn, notification_id)
+        if existing is None:
             new_count += 1
-        elif existing_updated_at != notif["updated_at"]:
+        elif existing.updated_at != notif["updated_at"]:
             updated_count += 1
 
         upsert_notification(conn, row)

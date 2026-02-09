@@ -12,7 +12,7 @@ from textual.containers import Vertical
 from textual.css.query import NoMatches
 from textual.widgets import Footer, Header, Input, Static
 
-from forge_triage.db import get_notification_count, get_notification_field, open_db
+from forge_triage.db import get_notification, get_notification_count, open_db
 from forge_triage.messages import (
     ErrorResult,
     FetchCommentsRequest,
@@ -152,8 +152,8 @@ class TriageApp(App[None]):
 
     def _maybe_fetch_comments(self, notification_id: str) -> None:
         """Post FetchCommentsRequest if comments aren't loaded."""
-        comments_loaded = get_notification_field(self._conn, notification_id, "comments_loaded")
-        if comments_loaded is not None and not comments_loaded:
+        notif = get_notification(self._conn, notification_id)
+        if notif is not None and not notif.comments_loaded:
             self._request_queue.put_nowait(FetchCommentsRequest(notification_id=notification_id))
 
     async def _poll_responses(self) -> None:
@@ -242,9 +242,9 @@ class TriageApp(App[None]):
         nid = nlist.selected_notification_id
         if nid is None:
             return
-        html_url = get_notification_field(self._conn, nid, "html_url")
-        if html_url:
-            webbrowser.open(str(html_url))
+        notif = get_notification(self._conn, nid)
+        if notif is not None and notif.html_url:
+            webbrowser.open(notif.html_url)
 
     def action_start_filter(self) -> None:
         """Show the filter input."""

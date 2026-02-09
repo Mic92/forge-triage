@@ -25,9 +25,9 @@ class DetailPane(Static):
             self.update("No notification selected.")
             return
 
-        row = get_notification(self._conn, notification_id)
+        notif = get_notification(self._conn, notification_id)
 
-        if row is None:
+        if notif is None:
             self.update("Notification not found.")
             return
 
@@ -35,29 +35,30 @@ class DetailPane(Static):
         update_last_viewed(self._conn, notification_id)
 
         parts: list[str] = []
-        parts.append(f"[bold]{row['subject_title']}[/bold]")
+        parts.append(f"[bold]{notif.subject_title}[/bold]")
         parts.append(
-            f"{row['repo_owner']}/{row['repo_name']}  •  {row['subject_type']}  •  {row['reason']}"
+            f"{notif.repo_owner}/{notif.repo_name}  •  "
+            f"{notif.subject_type}  •  {notif.reason}"
         )
-        if row["ci_status"]:
-            ci_style = "green" if row["ci_status"] == "success" else "red"
-            parts.append(f"CI: [{ci_style}]{row['ci_status']}[/{ci_style}]")
+        if notif.ci_status:
+            ci_style = "green" if notif.ci_status == "success" else "red"
+            parts.append(f"CI: [{ci_style}]{notif.ci_status}[/{ci_style}]")
         parts.append("")
 
         # Comments
         comments = get_comments(self._conn, notification_id)
-        last_viewed = row["last_viewed_at"]
+        last_viewed = notif.last_viewed_at
 
-        if row["comments_loaded"] and comments:
+        if notif.comments_loaded and comments:
             parts.append(f"[bold]Comments ({len(comments)}):[/bold]")
             parts.append("")
             for comment in comments:
-                is_new = last_viewed is not None and comment["created_at"] > last_viewed
+                is_new = last_viewed is not None and comment.created_at > last_viewed
                 author_style = "[bold yellow]" if is_new else "[bold]"
-                parts.append(f"{author_style}{comment['author']}[/] — {comment['created_at']}")
-                parts.append(comment["body"])
+                parts.append(f"{author_style}{comment.author}[/] — {comment.created_at}")
+                parts.append(comment.body)
                 parts.append("")
-        elif not row["comments_loaded"]:
+        elif not notif.comments_loaded:
             parts.append("[dim]Loading comments…[/dim]")
         else:
             parts.append("[dim]No comments.[/dim]")

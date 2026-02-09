@@ -9,8 +9,8 @@ from typing import TYPE_CHECKING
 
 from forge_triage.db import (
     delete_notification,
-    get_notification_field,
-    get_unloaded_top_notifications,
+    get_notification,
+    get_unloaded_top_notification_ids,
     mark_comments_loaded,
     upsert_comments,
 )
@@ -57,11 +57,11 @@ async def _handle_fetch_comments(
     token: str,
 ) -> FetchCommentsResult:
     """Fetch comments for a single notification."""
-    raw_json = get_notification_field(conn, req.notification_id, "raw_json")
-    if raw_json is None:
+    notif_row = get_notification(conn, req.notification_id)
+    if notif_row is None:
         return FetchCommentsResult(notification_id=req.notification_id, comment_count=0)
 
-    notif = json.loads(str(raw_json))
+    notif = json.loads(notif_row.raw_json)
     subject_url: str = notif["subject"]["url"]
 
     # Build comments URL
@@ -95,7 +95,7 @@ async def _handle_preload(
     token: str,
 ) -> PreLoadComplete:
     """Pre-load comments for top N notifications by priority."""
-    rows = get_unloaded_top_notifications(conn, req.top_n)
+    nids = get_unloaded_top_notification_ids(conn, req.top_n)
 
     sem = asyncio.Semaphore(COMMENT_CONCURRENCY)
     loaded: list[str] = []
@@ -108,7 +108,7 @@ async def _handle_preload(
             if result.comment_count > 0:
                 loaded.append(nid)
 
-    await asyncio.gather(*[_load(row["notification_id"]) for row in rows])
+    await asyncio.gather(*[_load(nid) for nid in nids])
     return PreLoadComplete(loaded_ids=loaded)
 
 
