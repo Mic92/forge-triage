@@ -74,7 +74,7 @@ class TriageApp(App[None]):
         Binding("D", "bulk_done", "Bulk Done", show=True, key_display="D"),
         Binding("o", "open_browser", "Open", show=True),
         Binding("slash", "start_filter", "Filter", show=True),
-        Binding("r", "filter_reason", "Reason", show=True),
+        Binding("r", "refresh", "Refresh", show=True),
         Binding("escape", "clear_filter", "Clear", show=True),
         Binding("x", "toggle_select", "Select"),
         Binding("asterisk", "select_all", "Select All"),
@@ -98,7 +98,6 @@ class TriageApp(App[None]):
         )
         self._selected: set[str] = set()
         self._filter_text = ""
-        self._filter_reason = ""
 
     def compose(self) -> ComposeResult:
         """Create the split-pane layout."""
@@ -185,10 +184,7 @@ class TriageApp(App[None]):
         if result.errors:
             nlist = self._get_notification_list()
             if nlist is not None:
-                nlist.refresh_data(
-                    filter_text=self._filter_text,
-                    filter_reason=self._filter_reason,
-                )
+                nlist.refresh_data(filter_text=self._filter_text)
             self.notify(f"Error: {', '.join(result.errors)}", severity="error")
 
     def _on_fetch_comments_result(self, result: FetchCommentsResult) -> None:
@@ -269,42 +265,20 @@ class TriageApp(App[None]):
         filter_input.styles.display = "none"
         nlist = self._get_notification_list()
         if nlist is not None:
-            nlist.refresh_data(
-                filter_text=self._filter_text,
-                filter_reason=self._filter_reason,
-            )
+            nlist.refresh_data(filter_text=self._filter_text)
             self.set_focus(nlist)
 
-    def action_filter_reason(self) -> None:
-        """Cycle through reason filters."""
-        reasons = [
-            "",
-            "review_requested",
-            "mention",
-            "assign",
-            "team_mention",
-            "subscribed",
-        ]
-        current_idx = 0
-        if self._filter_reason in reasons:
-            current_idx = reasons.index(self._filter_reason)
-        next_idx = (current_idx + 1) % len(reasons)
-        self._filter_reason = reasons[next_idx]
+    def action_refresh(self) -> None:
+        """Reload notification list from the database."""
         nlist = self._get_notification_list()
         if nlist is not None:
-            nlist.refresh_data(
-                filter_text=self._filter_text,
-                filter_reason=self._filter_reason,
-            )
-        if self._filter_reason:
-            self.notify(f"Filter: {self._filter_reason}")
-        else:
-            self.notify("Filter cleared")
+            nlist.refresh_data(filter_text=self._filter_text)
+            self.set_focus(nlist)
+        self.notify("Refreshed")
 
     def action_clear_filter(self) -> None:
         """Clear all filters."""
         self._filter_text = ""
-        self._filter_reason = ""
         filter_input = self.query_one("#filter-input", Input)
         filter_input.styles.display = "none"
         filter_input.value = ""

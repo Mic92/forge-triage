@@ -23,7 +23,7 @@ _HELP_TEXT = """\
   [bold]*[/bold]         Select all visible
   [bold]o[/bold]         Open in browser
   [bold]/[/bold]         Filter by text
-  [bold]r[/bold]         Filter by reason
+  [bold]r[/bold]         Refresh list
   [bold]Escape[/bold]    Clear filter
   [bold]g[/bold]         Toggle repo grouping
   [bold]?[/bold]         This help

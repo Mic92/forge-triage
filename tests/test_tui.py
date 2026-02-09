@@ -156,6 +156,35 @@ async def test_detail_pane_updates_on_cursor_move(tmp_db: sqlite3.Connection) ->
         assert "Update docs" in rendered.plain
 
 
+async def test_refresh_reloads_from_db(tmp_db: sqlite3.Connection) -> None:
+    """Pressing r refreshes the notification list from the database."""
+    _populate_db(tmp_db)
+    app = TriageApp(conn=tmp_db)
+
+    async with app.run_test() as pilot:
+        nlist = app.query_one(NotificationList)
+        assert nlist.row_count == 3
+
+        # Insert a new notification directly into the DB (simulating a background sync)
+        upsert_notification(
+            tmp_db,
+            NotificationRow(
+                notification_id="1004",
+                subject_title="New hotfix",
+                reason="assign",
+                priority_score=900,
+                priority_tier="blocking",
+            ).as_dict(),
+        )
+
+        # List still shows 3 until we refresh
+        assert nlist.row_count == 3
+
+        await pilot.press("r")
+        await pilot.pause()
+        assert nlist.row_count == 4
+
+
 async def test_quit(tmp_db: sqlite3.Connection) -> None:
     """Pressing q exits the TUI."""
     _populate_db(tmp_db)

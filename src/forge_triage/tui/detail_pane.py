@@ -36,8 +36,7 @@ class DetailPane(Static):
 
         # Update last_viewed_at
         self._conn.execute(
-            "UPDATE notifications SET last_viewed_at = datetime('now') "
-            "WHERE notification_id = ?",
+            "UPDATE notifications SET last_viewed_at = datetime('now') WHERE notification_id = ?",
             (notification_id,),
         )
         self._conn.commit()
@@ -45,8 +44,7 @@ class DetailPane(Static):
         parts: list[str] = []
         parts.append(f"[bold]{row['subject_title']}[/bold]")
         parts.append(
-            f"{row['repo_owner']}/{row['repo_name']}  •  "
-            f"{row['subject_type']}  •  {row['reason']}"
+            f"{row['repo_owner']}/{row['repo_name']}  •  {row['subject_type']}  •  {row['reason']}"
         )
         if row["ci_status"]:
             ci_style = "green" if row["ci_status"] == "success" else "red"
@@ -61,13 +59,9 @@ class DetailPane(Static):
             parts.append(f"[bold]Comments ({len(comments)}):[/bold]")
             parts.append("")
             for comment in comments:
-                is_new = (
-                    last_viewed is not None and comment["created_at"] > last_viewed
-                )
+                is_new = last_viewed is not None and comment["created_at"] > last_viewed
                 author_style = "[bold yellow]" if is_new else "[bold]"
-                parts.append(
-                    f"{author_style}{comment['author']}[/] — {comment['created_at']}"
-                )
+                parts.append(f"{author_style}{comment['author']}[/] — {comment['created_at']}")
                 parts.append(comment["body"])
                 parts.append("")
         elif not row["comments_loaded"]:

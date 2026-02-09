@@ -24,9 +24,7 @@ if TYPE_CHECKING:
     from pytest_httpx import HTTPXMock
 
 
-async def test_mark_done_through_worker(
-    tmp_db: sqlite3.Connection, httpx_mock: HTTPXMock
-) -> None:
+async def test_mark_done_through_worker(tmp_db: sqlite3.Connection, httpx_mock: HTTPXMock) -> None:
     """Post MarkDoneRequest → backend calls API, deletes from DB, posts result."""
     upsert_notification(tmp_db, NotificationRow().as_dict())
 
@@ -37,12 +35,12 @@ async def test_mark_done_through_worker(
         headers={"X-RateLimit-Remaining": "4990"},
     )
 
-    req_q: asyncio.Queue[
-        MarkDoneRequest | FetchCommentsRequest | PreLoadCommentsRequest
-    ] = asyncio.Queue()
-    resp_q: asyncio.Queue[
-        MarkDoneResult | FetchCommentsResult | PreLoadComplete | ErrorResult
-    ] = asyncio.Queue()
+    req_q: asyncio.Queue[MarkDoneRequest | FetchCommentsRequest | PreLoadCommentsRequest] = (
+        asyncio.Queue()
+    )
+    resp_q: asyncio.Queue[MarkDoneResult | FetchCommentsResult | PreLoadComplete | ErrorResult] = (
+        asyncio.Queue()
+    )
 
     task = asyncio.create_task(backend_worker(req_q, resp_q, tmp_db, "ghp_test"))
 
@@ -54,9 +52,7 @@ async def test_mark_done_through_worker(
     assert result.errors == []
 
     # Verify notification deleted from DB
-    row = tmp_db.execute(
-        "SELECT * FROM notifications WHERE notification_id = '1001'"
-    ).fetchone()
+    row = tmp_db.execute("SELECT * FROM notifications WHERE notification_id = '1001'").fetchone()
     assert row is None
 
     task.cancel()
