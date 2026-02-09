@@ -12,7 +12,7 @@ from forge_triage.messages import (
     PreLoadCommentsRequest,
 )
 from forge_triage.tui.app import TriageApp
-from forge_triage.tui.notification_list import NotificationList
+from forge_triage.tui.notification_list import NotificationList, _state_icon
 from tests.conftest import NotificationRow
 
 if TYPE_CHECKING:
@@ -191,3 +191,26 @@ async def test_quit(tmp_db: sqlite3.Connection) -> None:
     app = TriageApp(conn=tmp_db)
     async with app.run_test() as pilot:
         await pilot.press("q")
+
+
+def test_state_icon_mapping() -> None:
+    """Verify nerdfont icons for all subject type + state combinations."""
+    assert _state_icon("Issue", "open").plain == "\uf41b"
+    assert _state_icon("Issue", "open").style == "green"
+
+    assert _state_icon("Issue", "closed").plain == "\uf41d"
+    assert _state_icon("Issue", "closed").style == "purple"
+
+    assert _state_icon("PullRequest", "open").plain == "\uf407"
+    assert _state_icon("PullRequest", "open").style == "green"
+
+    assert _state_icon("PullRequest", "merged").plain == "\uf419"
+    assert _state_icon("PullRequest", "merged").style == "purple"
+
+    assert _state_icon("PullRequest", "closed").plain == "\uf4dc"
+    assert _state_icon("PullRequest", "closed").style == "red"
+
+    assert _state_icon("Discussion", None).plain == "\uf49a"
+    assert _state_icon("Discussion", None).style == "dim"
+
+    assert _state_icon(None, None).plain == "\uf49a"

@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 import subprocess
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
@@ -12,7 +13,175 @@ import httpx
 logger = logging.getLogger(__name__)
 
 API_BASE = "https://api.github.com"
+GRAPHQL_URL = "https://api.github.com/graphql"
+GRAPHQL_BATCH_SIZE = 100  # nodes per query (conservative vs GitHub's ~500 limit)
+
+_SUBJECT_URL_RE = re.compile(
+    r"https://api\.github\.com/repos/(?P<owner>[^/]+)/(?P<repo>[^/]+)"
+    r"/(?P<kind>pulls|issues)/(?P<number>\d+)$"
+)
+
+
+@dataclass(frozen=True)
+class ParsedSubject:
+    """A parsed GitHub subject URL."""
+
+    owner: str
+    repo: str
+    number: int
+    kind: str  # "pull_request" or "issue"
+
+
+def parse_subject_url(url: str | None) -> ParsedSubject | None:
+    """Extract owner, repo, number, and kind from a GitHub API subject URL.
+
+    Returns None for null URLs or URLs that don't match the expected pattern.
+    """
+    if url is None:
+        return None
+    m = _SUBJECT_URL_RE.match(url)
+    if m is None:
+        return None
+    kind = "pull_request" if m.group("kind") == "pulls" else "issue"
+    return ParsedSubject(
+        owner=m.group("owner"),
+        repo=m.group("repo"),
+        number=int(m.group("number")),
+        kind=kind,
+    )
+
+
 RATE_LIMIT_WARNING_THRESHOLD = 100
+
+
+SubjectDetails = tuple[str | None, str | None]
+"""(subject_state, ci_status) for a notification."""
+
+
+_PR_FRAGMENT = """\
+fragment PrDetails on PullRequest {
+  state
+  merged
+  commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
+}"""
+
+_ISSUE_FRAGMENT = """\
+fragment IssueDetails on Issue {
+  state
+}"""
+
+
+def _build_subject_details_query(
+    subjects: dict[str, ParsedSubject],
+) -> tuple[str, dict[str, str]]:
+    """Build a GraphQL query to fetch details for multiple subjects.
+
+    Groups subjects by (owner, repo) and uses fragments to avoid repeating
+    field selections per node.
+    Returns (query_string, alias_to_notification_id mapping).
+    """
+    # Group by (owner, repo)
+    repos: dict[tuple[str, str], list[tuple[str, ParsedSubject]]] = {}
+    for nid, parsed in subjects.items():
+        key = (parsed.owner, parsed.repo)
+        repos.setdefault(key, []).append((nid, parsed))
+
+    alias_map: dict[str, str] = {}  # graphql alias → notification_id
+    repo_fragments: list[str] = []
+    has_pr = False
+    has_issue = False
+
+    for repo_idx, ((owner, repo), items) in enumerate(repos.items()):
+        node_fragments: list[str] = []
+        for nid, parsed in items:
+            if parsed.kind == "pull_request":
+                alias = f"pr_{nid}"
+                node_fragments.append(
+                    f"    {alias}: pullRequest(number: {parsed.number}) {{ ...PrDetails }}"
+                )
+                has_pr = True
+            else:
+                alias = f"issue_{nid}"
+                node_fragments.append(
+                    f"    {alias}: issue(number: {parsed.number}) {{ ...IssueDetails }}"
+                )
+                has_issue = True
+            alias_map[alias] = nid
+
+        repo_alias = f"r{repo_idx}"
+        repo_fragments.append(
+            f'  {repo_alias}: repository(owner: "{owner}", name: "{repo}") {{\n'
+            + "\n".join(node_fragments)
+            + "\n  }"
+        )
+
+    parts: list[str] = []
+    if has_pr:
+        parts.append(_PR_FRAGMENT)
+    if has_issue:
+        parts.append(_ISSUE_FRAGMENT)
+    parts.append("query {\n" + "\n".join(repo_fragments) + "\n}")
+
+    return "\n".join(parts), alias_map
+
+
+def _parse_pr_state(node_data: dict[str, Any]) -> SubjectDetails:
+    """Extract (subject_state, ci_status) from a PR GraphQL node."""
+    state = node_data.get("state", "").upper()
+    merged = node_data.get("merged", False)
+    if merged:
+        subject_state = "merged"
+    elif state == "OPEN":
+        subject_state = "open"
+    elif state == "CLOSED":
+        subject_state = "closed"
+    else:
+        subject_state = None
+
+    ci_status: str | None = None
+    nodes = node_data.get("commits", {}).get("nodes", [])
+    if nodes:
+        rollup = nodes[0].get("commit", {}).get("statusCheckRollup")
+        if rollup is not None:
+            raw_ci = rollup.get("state", "").lower()
+            if raw_ci in ("success", "failure", "pending", "error"):
+                ci_status = raw_ci
+
+    return (subject_state, ci_status)
+
+
+def _parse_issue_state(node_data: dict[str, Any]) -> SubjectDetails:
+    """Extract (subject_state, ci_status) from an Issue GraphQL node."""
+    state = node_data.get("state", "").upper()
+    if state == "OPEN":
+        return ("open", None)
+    if state == "CLOSED":
+        return ("closed", None)
+    return (None, None)
+
+
+def _parse_graphql_response(
+    data: dict[str, Any],
+    alias_map: dict[str, str],
+) -> dict[str, SubjectDetails]:
+    """Parse a GraphQL response into notification_id → (subject_state, ci_status)."""
+    results: dict[str, SubjectDetails] = {}
+
+    for repo_data in data.values():
+        if repo_data is None:
+            continue
+        for alias, node_data in repo_data.items():
+            nid = alias_map.get(alias)
+            if nid is None:
+                continue
+            if node_data is None:
+                results[nid] = (None, None)
+            elif alias.startswith("pr_"):
+                results[nid] = _parse_pr_state(node_data)
+            elif alias.startswith("issue_"):
+                results[nid] = _parse_issue_state(node_data)
+
+    return results
 
 
 class AuthError(Exception):
@@ -107,29 +276,50 @@ async def fetch_comments(
     return comments
 
 
-async def fetch_ci_status(
+async def fetch_subject_details(
     token: str,
-    repo_full_name: str,
-    pr_url: str,
-) -> str | None:
-    """Fetch combined CI status for a PR. Returns 'success', 'failure', 'pending', or None."""
-    headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}
-    async with httpx.AsyncClient(headers=headers) as client:
-        # First get the PR to find head SHA
-        response = await client.get(pr_url)
-        _check_rate_limit(response)
-        response.raise_for_status()
-        pr_data: dict[str, Any] = response.json()
-        head_sha: str = pr_data["head"]["sha"]
+    notifications: list[dict[str, Any]],
+) -> dict[str, SubjectDetails]:
+    """Batch-fetch subject state and CI status for notifications via GraphQL.
 
-        # Then get combined status
-        status_url = f"{API_BASE}/repos/{repo_full_name}/commits/{head_sha}/status"
-        response = await client.get(status_url)
-        _check_rate_limit(response)
-        response.raise_for_status()
-        status_data: dict[str, Any] = response.json()
-        state: str = status_data["state"]
-        return state if state != "pending" or status_data["total_count"] > 0 else None
+    Returns a dict mapping notification_id → (subject_state, ci_status).
+    Notifications with unparseable URLs are excluded (callers should default to (None, None)).
+    """
+    # Parse URLs and filter to fetchable subjects
+    subjects: dict[str, ParsedSubject] = {}
+    for notif in notifications:
+        url: str | None = notif["subject"]["url"]
+        parsed = parse_subject_url(url)
+        if parsed is not None:
+            subjects[notif["id"]] = parsed
+
+    if not subjects:
+        return {}
+
+    results: dict[str, SubjectDetails] = {}
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}
+
+    # Batch into chunks
+    subject_items = list(subjects.items())
+    async with httpx.AsyncClient(headers=headers) as client:
+        for start in range(0, len(subject_items), GRAPHQL_BATCH_SIZE):
+            batch = dict(subject_items[start : start + GRAPHQL_BATCH_SIZE])
+            query, alias_map = _build_subject_details_query(batch)
+
+            response = await client.post(GRAPHQL_URL, json={"query": query})
+            response.raise_for_status()
+            body = response.json()
+
+            data = body.get("data")
+            if data is not None:
+                results.update(_parse_graphql_response(data, alias_map))
+
+            # Mark any unfetched notifications (errors / missing) as (None, None)
+            for nid in alias_map.values():
+                if nid not in results:
+                    results[nid] = (None, None)
+
+    return results
 
 
 async def mark_as_read(token: str, thread_id: str) -> None:

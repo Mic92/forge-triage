@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from forge_triage.github import fetch_notifications
+from forge_triage.github import fetch_notifications, fetch_subject_details
 
 if TYPE_CHECKING:
     from pytest_httpx import HTTPXMock
@@ -68,3 +68,133 @@ async def test_fetch_notifications_pagination(httpx_mock: HTTPXMock) -> None:
     assert len(result) == 2
     assert result[0]["id"] == "1001"
     assert result[1]["id"] == "1002"
+
+
+# ---------- fetch_subject_details ----------
+
+# Notifications spanning two repos, all subject types + states
+_NOTIFS_FOR_GRAPHQL = [
+    {
+        "id": "n1",
+        "subject": {
+            "type": "PullRequest",
+            "url": "https://api.github.com/repos/NixOS/nixpkgs/pulls/100",
+        },
+    },
+    {
+        "id": "n2",
+        "subject": {
+            "type": "PullRequest",
+            "url": "https://api.github.com/repos/NixOS/nixpkgs/pulls/200",
+        },
+    },
+    {
+        "id": "n3",
+        "subject": {
+            "type": "PullRequest",
+            "url": "https://api.github.com/repos/NixOS/nixpkgs/pulls/300",
+        },
+    },
+    {
+        "id": "n4",
+        "subject": {
+            "type": "Issue",
+            "url": "https://api.github.com/repos/other/repo/issues/10",
+        },
+    },
+    {
+        "id": "n5",
+        "subject": {
+            "type": "Issue",
+            "url": "https://api.github.com/repos/other/repo/issues/20",
+        },
+    },
+    # Null URL — should be excluded from GraphQL
+    {
+        "id": "n6",
+        "subject": {
+            "type": "Discussion",
+            "url": None,
+        },
+    },
+]
+
+_GRAPHQL_RESPONSE = {
+    "data": {
+        "r0": {
+            "pr_n1": {
+                "state": "OPEN",
+                "merged": False,
+                "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": "SUCCESS"}}}]},
+            },
+            "pr_n2": {
+                "state": "CLOSED",
+                "merged": True,
+                "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": "SUCCESS"}}}]},
+            },
+            "pr_n3": {
+                "state": "CLOSED",
+                "merged": False,
+                "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": "FAILURE"}}}]},
+            },
+        },
+        "r1": {
+            "issue_n4": {"state": "OPEN"},
+            "issue_n5": {"state": "CLOSED"},
+        },
+    }
+}
+
+
+async def test_fetch_subject_details(httpx_mock: HTTPXMock) -> None:
+    """Batch GraphQL fetch: open/merged/closed PR, open/closed issue, null URL excluded."""
+    httpx_mock.add_response(
+        url="https://api.github.com/graphql",
+        json=_GRAPHQL_RESPONSE,
+    )
+
+    result = await fetch_subject_details("ghp_test", _NOTIFS_FOR_GRAPHQL)
+
+    assert result["n1"] == ("open", "success")
+    assert result["n2"] == ("merged", "success")
+    assert result["n3"] == ("closed", "failure")
+    assert result["n4"] == ("open", None)
+    assert result["n5"] == ("closed", None)
+    # n6 (null URL) should not be in results at all
+    assert "n6" not in result
+
+
+async def test_fetch_subject_details_partial_error(httpx_mock: HTTPXMock) -> None:
+    """GraphQL returns null for a node (e.g. deleted PR) → (None, None)."""
+    notifs = [
+        {
+            "id": "ok1",
+            "subject": {
+                "type": "Issue",
+                "url": "https://api.github.com/repos/a/b/issues/1",
+            },
+        },
+        {
+            "id": "bad1",
+            "subject": {
+                "type": "PullRequest",
+                "url": "https://api.github.com/repos/a/b/pulls/999",
+            },
+        },
+    ]
+    httpx_mock.add_response(
+        url="https://api.github.com/graphql",
+        json={
+            "data": {
+                "r0": {
+                    "issue_ok1": {"state": "OPEN"},
+                    "pr_bad1": None,  # deleted / no access
+                },
+            }
+        },
+    )
+
+    result = await fetch_subject_details("ghp_test", notifs)
+
+    assert result["ok1"] == ("open", None)
+    assert result["bad1"] == (None, None)

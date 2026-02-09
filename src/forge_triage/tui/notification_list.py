@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, ClassVar
 
+from rich.text import Text
 from textual.binding import Binding
 from textual.widgets import DataTable
 
@@ -13,10 +14,24 @@ if TYPE_CHECKING:
     from textual.binding import BindingType
 
 
-_TIER_INDICATORS = {"blocking": "🔴", "action": "🟡", "fyi": "⚪"}
+def _state_icon(subject_type: str | None, subject_state: str | None) -> Text:
+    """Map subject type + state to a nerdfont Octicon with color."""
+    if subject_type == "Issue":
+        if subject_state == "open":
+            return Text("\uf41b", style="green")  # nf-oct-issue_opened
+        if subject_state == "closed":
+            return Text("\uf41d", style="purple")  # nf-oct-issue_closed
+    elif subject_type == "PullRequest":
+        if subject_state == "open":
+            return Text("\uf407", style="green")  # nf-oct-git_pull_request
+        if subject_state == "merged":
+            return Text("\uf419", style="purple")  # nf-oct-git_merge
+        if subject_state == "closed":
+            return Text("\uf4dc", style="red")  # nf-oct-git_pull_request_closed
+    return Text("\uf49a", style="dim")  # nf-oct-bell (unknown/null)
 
 
-class NotificationList(DataTable[str]):
+class NotificationList(DataTable[str | Text]):
     """A DataTable displaying notifications sorted by priority."""
 
     BINDINGS: ClassVar[list[BindingType]] = [
@@ -62,11 +77,11 @@ class NotificationList(DataTable[str]):
 
         rows = self._conn.execute(query, params).fetchall()
         for row in rows:
-            indicator = _TIER_INDICATORS.get(row["priority_tier"], "⚪")
+            icon = _state_icon(row["subject_type"], row["subject_state"])
             repo = f"{row['repo_owner']}/{row['repo_name']}"
             title = row["subject_title"]
             nid = row["notification_id"]
-            row_key = self.add_row(indicator, repo, title, row["reason"], key=nid)
+            row_key = self.add_row(icon, repo, title, row["reason"], key=nid)
             self._notification_ids.append(nid)
             self._row_keys.append(str(row_key))
 

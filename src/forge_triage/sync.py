@@ -18,9 +18,9 @@ from forge_triage.db import (
     upsert_notification,
 )
 from forge_triage.github import (
-    fetch_ci_status,
     fetch_comments,
     fetch_notifications,
+    fetch_subject_details,
 )
 from forge_triage.priority import compute_priority
 
@@ -35,12 +35,14 @@ class SyncResult:
 
     new: int
     updated: int
+    purged: int
     total: int
 
 
 def _notification_to_row(
     notif: dict[str, Any],
     ci_status: str | None,
+    subject_state: str | None,
     priority_score: int,
     priority_tier: str,
 ) -> dict[str, str | int | None]:
@@ -74,6 +76,7 @@ def _notification_to_row(
         "comments_loaded": 0,
         "last_viewed_at": None,
         "ci_status": ci_status,
+        "subject_state": subject_state,
     }
 
 
@@ -140,6 +143,40 @@ async def _preload_comments_for_top_n(
         await asyncio.gather(*tasks)
 
 
+def _purge_stale(
+    conn: sqlite3.Connection,
+    fetched_notifications: list[dict[str, Any]],
+) -> int:
+    """Delete local notifications that GitHub no longer returns.
+
+    If the sync returned zero notifications, all local notifications are purged.
+    Otherwise, notifications not in the fetched set whose updated_at is older than
+    or equal to the oldest fetched updated_at are deleted (they fall within the
+    time window the API covered and were not returned, meaning they're gone).
+    """
+    if not fetched_notifications:
+        # Empty response → inbox is empty on GitHub
+        count: int = conn.execute("SELECT count(*) FROM notifications").fetchone()[0]
+        if count > 0:
+            conn.execute("DELETE FROM notifications")
+            conn.commit()
+        return count
+
+    fetched_ids = {n["id"] for n in fetched_notifications}
+    oldest = min(n["updated_at"] for n in fetched_notifications)
+
+    placeholders = ",".join("?" for _ in fetched_ids)
+    cursor = conn.execute(
+        f"DELETE FROM notifications WHERE notification_id NOT IN ({placeholders})"  # noqa: S608
+        " AND updated_at <= ?",
+        [*fetched_ids, oldest],
+    )
+    purged = cursor.rowcount
+    if purged:
+        conn.commit()
+    return purged
+
+
 async def sync(
     conn: sqlite3.Connection,
     token: str,
@@ -154,24 +191,22 @@ async def sync(
     raw_notifications = await fetch_notifications(token, since=since)
     raw_notifications = raw_notifications[:max_notifications]
 
+    # Batch-fetch subject details (state + CI) via GraphQL
+    subject_details = await fetch_subject_details(token, raw_notifications)
+
     new_count = 0
     updated_count = 0
     total_to_process = len(raw_notifications)
 
     for idx, notif in enumerate(raw_notifications, 1):
         notification_id = notif["id"]
-        repo_full_name = notif["repository"]["full_name"]
-        subject_type = notif["subject"]["type"]
 
-        # Fetch CI status for PRs
-        ci_status: str | None = None
-        if subject_type == "PullRequest":
-            ci_status = await fetch_ci_status(token, repo_full_name, notif["subject"]["url"])
+        subject_state, ci_status = subject_details.get(notification_id, (None, None))
 
         # Compute priority (is_own_pr requires knowing the user — simplified for now)
         score, tier = compute_priority(notif["reason"], ci_status, is_own_pr=False)
 
-        row = _notification_to_row(notif, ci_status, score, tier)
+        row = _notification_to_row(notif, ci_status, subject_state, score, tier)
 
         # Check if this is new or updated
         existing = conn.execute(
@@ -188,6 +223,9 @@ async def sync(
         if on_progress is not None:
             on_progress(idx, total_to_process)
 
+    # Purge stale notifications no longer returned by GitHub
+    purged_count = _purge_stale(conn, raw_notifications)
+
     # Pre-load comments for top priority items
     await _preload_comments_for_top_n(conn, token)
 
@@ -198,4 +236,4 @@ async def sync(
 
     total = conn.execute("SELECT count(*) FROM notifications").fetchone()[0]
 
-    return SyncResult(new=new_count, updated=updated_count, total=total)
+    return SyncResult(new=new_count, updated=updated_count, purged=purged_count, total=total)

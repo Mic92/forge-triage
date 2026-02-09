@@ -61,6 +61,7 @@ class NotificationRow:
     priority_score: int = 0
     priority_tier: str = "fyi"
     ci_status: str | None = None
+    subject_state: str | None = None
     comments_loaded: int = 0
     last_viewed_at: str | None = None
     raw_json: str = field(default="")
@@ -92,6 +93,7 @@ class NotificationRow:
             "comments_loaded": self.comments_loaded,
             "last_viewed_at": self.last_viewed_at,
             "ci_status": self.ci_status,
+            "subject_state": self.subject_state,
         }
 
 

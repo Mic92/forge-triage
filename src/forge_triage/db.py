@@ -24,7 +24,8 @@ CREATE TABLE IF NOT EXISTS notifications (
     raw_json          TEXT NOT NULL,
     comments_loaded   INTEGER NOT NULL DEFAULT 0,
     last_viewed_at    TEXT,
-    ci_status         TEXT
+    ci_status         TEXT,
+    subject_state     TEXT
 );
 
 CREATE TABLE IF NOT EXISTS comments (
@@ -51,6 +52,61 @@ CREATE INDEX IF NOT EXISTS idx_comments_notification
 """
 
 
+# --- Schema migration system ---
+# Each migration is (version, sql). Applied in order for DBs behind the latest version.
+_MIGRATIONS: list[tuple[int, str]] = [
+    (1, "ALTER TABLE notifications ADD COLUMN subject_state TEXT"),
+]
+
+_LATEST_VERSION = _MIGRATIONS[-1][0] if _MIGRATIONS else 0
+
+
+def _get_schema_version(conn: sqlite3.Connection) -> int:
+    """Read schema_version from sync_metadata, default 0 for legacy DBs."""
+    row = conn.execute("SELECT value FROM sync_metadata WHERE key = 'schema_version'").fetchone()
+    return int(row["value"]) if row else 0
+
+
+def _set_schema_version(conn: sqlite3.Connection, version: int) -> None:
+    """Write schema_version to sync_metadata."""
+    conn.execute(
+        "INSERT INTO sync_metadata (key, value) VALUES ('schema_version', ?)"
+        " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (str(version),),
+    )
+
+
+def _is_fresh_db(conn: sqlite3.Connection) -> bool:
+    """Detect a freshly-created DB (no rows, no schema_version set)."""
+    row = conn.execute("SELECT value FROM sync_metadata WHERE key = 'schema_version'").fetchone()
+    if row is not None:
+        return False
+    count: int = conn.execute("SELECT count(*) FROM notifications").fetchone()[0]
+    return count == 0
+
+
+def _run_migrations(conn: sqlite3.Connection) -> None:
+    """Apply pending migrations or stamp fresh DBs at the latest version.
+
+    Fresh databases already have the full up-to-date schema from CREATE TABLE,
+    so we only stamp them at the latest version without running ALTER statements.
+    Existing databases get each pending migration applied sequentially.
+    """
+    if _is_fresh_db(conn):
+        _set_schema_version(conn, _LATEST_VERSION)
+        conn.commit()
+        return
+
+    current_version = _get_schema_version(conn)
+    for version, sql in _MIGRATIONS:
+        if version > current_version:
+            conn.execute(sql)
+            current_version = version
+
+    _set_schema_version(conn, current_version)
+    conn.commit()
+
+
 def get_db_path() -> Path:
     """Return the path to the SQLite database, following XDG conventions."""
     xdg_data = os.environ.get("XDG_DATA_HOME")
@@ -59,13 +115,19 @@ def get_db_path() -> Path:
 
 
 def init_db(path: Path) -> sqlite3.Connection:
-    """Create or open the database and ensure the schema exists."""
+    """Create or open the database and ensure the schema exists.
+
+    For fresh databases, the full up-to-date schema is applied and stamped
+    with the latest version.  For existing databases, pending migrations
+    are applied sequentially.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path))
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
     conn.row_factory = sqlite3.Row
     conn.executescript(_SCHEMA)
+    _run_migrations(conn)
     return conn
 
 
@@ -86,11 +148,13 @@ def upsert_notification(conn: sqlite3.Connection, row: dict[str, str | int | Non
             """INSERT INTO notifications
                (notification_id, repo_owner, repo_name, subject_type, subject_title,
                 subject_url, html_url, reason, updated_at, unread, priority_score,
-                priority_tier, raw_json, comments_loaded, last_viewed_at, ci_status)
+                priority_tier, raw_json, comments_loaded, last_viewed_at, ci_status,
+                subject_state)
                VALUES
                (:notification_id, :repo_owner, :repo_name, :subject_type, :subject_title,
                 :subject_url, :html_url, :reason, :updated_at, :unread, :priority_score,
-                :priority_tier, :raw_json, :comments_loaded, :last_viewed_at, :ci_status)""",
+                :priority_tier, :raw_json, :comments_loaded, :last_viewed_at, :ci_status,
+                :subject_state)""",
             row,
         )
     else:
@@ -105,7 +169,7 @@ def upsert_notification(conn: sqlite3.Connection, row: dict[str, str | int | Non
                 reason = :reason, updated_at = :updated_at, unread = :unread,
                 priority_score = :priority_score, priority_tier = :priority_tier,
                 raw_json = :raw_json, comments_loaded = :comments_loaded,
-                ci_status = :ci_status
+                ci_status = :ci_status, subject_state = :subject_state
                WHERE notification_id = :notification_id""",
             {**row, "comments_loaded": comments_loaded},
         )
