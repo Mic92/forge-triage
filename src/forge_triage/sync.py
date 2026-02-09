@@ -1,0 +1,191 @@
+"""Sync orchestration — fetch from GitHub, update local DB."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    import sqlite3
+
+from forge_triage.db import (
+    get_sync_meta,
+    set_sync_meta,
+    upsert_comments,
+    upsert_notification,
+)
+from forge_triage.github import (
+    fetch_ci_status,
+    fetch_comments,
+    fetch_notifications,
+)
+from forge_triage.priority import compute_priority
+
+COMMENT_PRELOAD_COUNT = 20
+COMMENT_CONCURRENCY = 5
+
+
+@dataclass
+class SyncResult:
+    """Summary of a sync operation."""
+
+    new: int
+    updated: int
+    total: int
+
+
+def _notification_to_row(
+    notif: dict[str, Any],
+    ci_status: str | None,
+    priority_score: int,
+    priority_tier: str,
+) -> dict[str, str | int | None]:
+    """Convert a GitHub API notification to a DB row dict."""
+    repo = notif["repository"]
+    subject = notif["subject"]
+    # Convert API URL to browser URL (subject.url can be null for some types)
+    subject_url: str | None = subject["url"]
+    if subject_url is not None:
+        html_url: str | None = (
+            subject_url.replace("api.github.com/repos", "github.com")
+            .replace("/pulls/", "/pull/")
+            .replace("/issues/", "/issues/")
+        )
+    else:
+        html_url = None
+    return {
+        "notification_id": notif["id"],
+        "repo_owner": repo["owner"]["login"],
+        "repo_name": repo["name"],
+        "subject_type": subject["type"],
+        "subject_title": subject["title"],
+        "subject_url": subject_url,
+        "html_url": html_url,
+        "reason": notif["reason"],
+        "updated_at": notif["updated_at"],
+        "unread": 1 if notif.get("unread", True) else 0,
+        "priority_score": priority_score,
+        "priority_tier": priority_tier,
+        "raw_json": json.dumps(notif),
+        "comments_loaded": 0,
+        "last_viewed_at": None,
+        "ci_status": ci_status,
+    }
+
+
+def _comments_url_from_notification(notif: dict[str, Any]) -> str | None:
+    """Extract the comments URL from a notification's subject."""
+    subject_url: str | None = notif["subject"]["url"]
+    if subject_url is None:
+        return None
+    # Convert PR/Issue API URL to comments URL
+    # e.g. /repos/NixOS/nixpkgs/pulls/12345 → /repos/NixOS/nixpkgs/issues/12345/comments
+    if "/pulls/" in subject_url:
+        return subject_url.replace("/pulls/", "/issues/") + "/comments"
+    if "/issues/" in subject_url:
+        return subject_url + "/comments"
+    return None
+
+
+async def _preload_comments_for_top_n(
+    conn: sqlite3.Connection,
+    token: str,
+    top_n: int = COMMENT_PRELOAD_COUNT,
+) -> None:
+    """Pre-load comments for the top N notifications by priority."""
+    # Sort by priority_score descending (already computed)
+    rows = conn.execute(
+        "SELECT notification_id, raw_json, comments_loaded FROM notifications "
+        "ORDER BY priority_score DESC LIMIT ?",
+        (top_n,),
+    ).fetchall()
+
+    sem = asyncio.Semaphore(COMMENT_CONCURRENCY)
+
+    async def _load_one(notification_id: str, raw_json: str) -> None:
+        async with sem:
+            notif = json.loads(raw_json)
+            url = _comments_url_from_notification(notif)
+            if url is None:
+                return
+            comments = await fetch_comments(token, url)
+            db_comments = [
+                {
+                    "comment_id": str(c["id"]),
+                    "notification_id": notification_id,
+                    "author": c["user"]["login"],
+                    "body": c["body"],
+                    "created_at": c["created_at"],
+                    "updated_at": c["updated_at"],
+                }
+                for c in comments
+            ]
+            upsert_comments(conn, db_comments)
+            conn.execute(
+                "UPDATE notifications SET comments_loaded = 1 WHERE notification_id = ?",
+                (notification_id,),
+            )
+            conn.commit()
+
+    tasks = [
+        _load_one(row["notification_id"], row["raw_json"])
+        for row in rows
+        if not row["comments_loaded"]
+    ]
+    if tasks:
+        await asyncio.gather(*tasks)
+
+
+async def sync(
+    conn: sqlite3.Connection,
+    token: str,
+) -> SyncResult:
+    """Full sync: fetch notifications, compute priorities, pre-load comments."""
+    since = get_sync_meta(conn, "last_sync_at")
+
+    # Fetch notifications
+    raw_notifications = await fetch_notifications(token, since=since)
+
+    new_count = 0
+    updated_count = 0
+
+    for notif in raw_notifications:
+        notification_id = notif["id"]
+        repo_full_name = notif["repository"]["full_name"]
+        subject_type = notif["subject"]["type"]
+
+        # Fetch CI status for PRs
+        ci_status: str | None = None
+        if subject_type == "PullRequest":
+            ci_status = await fetch_ci_status(token, repo_full_name, notif["subject"]["url"])
+
+        # Compute priority (is_own_pr requires knowing the user — simplified for now)
+        score, tier = compute_priority(notif["reason"], ci_status, is_own_pr=False)
+
+        row = _notification_to_row(notif, ci_status, score, tier)
+
+        # Check if this is new or updated
+        existing = conn.execute(
+            "SELECT updated_at FROM notifications WHERE notification_id = ?",
+            (notification_id,),
+        ).fetchone()
+        if existing is None:
+            new_count += 1
+        elif existing["updated_at"] != notif["updated_at"]:
+            updated_count += 1
+
+        upsert_notification(conn, row)
+
+    # Pre-load comments for top priority items
+    await _preload_comments_for_top_n(conn, token)
+
+    # Update sync metadata
+    if raw_notifications:
+        latest = max(n["updated_at"] for n in raw_notifications)
+        set_sync_meta(conn, "last_sync_at", latest)
+
+    total = conn.execute("SELECT count(*) FROM notifications").fetchone()[0]
+
+    return SyncResult(new=new_count, updated=updated_count, total=total)

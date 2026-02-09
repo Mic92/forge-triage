@@ -1,0 +1,44 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "forge-triage"
+version = "0.1.0"
+description = "Fast TUI for triaging GitHub notifications"
+requires-python = ">=3.13"
+dependencies = [
+    "textual>=0.89.0",
+    "httpx>=0.27.0",
+]
+
+[project.scripts]
+forge-triage = "forge_triage.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/forge_triage"]
+
+[tool.mypy]
+strict = true
+python_version = "3.13"
+files = ["src", "tests"]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "D",       # pydocstyle — skip docstring enforcement for now
+    "COM812",  # trailing comma — conflicts with ruff format
+    "ISC001",  # implicit string concat — conflicts with ruff format
+    "T20",     # flake8-print — CLI tool needs print()
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101", "PLR2004"]  # assert and magic values are fine in tests
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
