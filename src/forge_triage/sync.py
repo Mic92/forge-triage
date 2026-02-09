@@ -131,11 +131,7 @@ async def _preload_comments_for_top_n(
             upsert_comments(conn, db_comments)
             mark_comments_loaded(conn, notification_id)
 
-    tasks = [
-        _load_one(r.notification_id, r.raw_json)
-        for r in rows
-        if not r.comments_loaded
-    ]
+    tasks = [_load_one(r.notification_id, r.raw_json) for r in rows if not r.comments_loaded]
     if tasks:
         await asyncio.gather(*tasks)
 

@@ -429,8 +429,7 @@ def get_notification_stats(conn: sqlite3.Connection) -> NotificationStats:
     by_reason = [
         CountStat(label=r["reason"], count=r["cnt"])
         for r in conn.execute(
-            "SELECT reason, count(*) as cnt FROM notifications "
-            "GROUP BY reason ORDER BY cnt DESC"
+            "SELECT reason, count(*) as cnt FROM notifications GROUP BY reason ORDER BY cnt DESC"
         ).fetchall()
     ]
     return NotificationStats(total=total, by_tier=by_tier, by_repo=by_repo, by_reason=by_reason)

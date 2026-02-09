@@ -37,8 +37,7 @@ class DetailPane(Static):
         parts: list[str] = []
         parts.append(f"[bold]{notif.subject_title}[/bold]")
         parts.append(
-            f"{notif.repo_owner}/{notif.repo_name}  •  "
-            f"{notif.subject_type}  •  {notif.reason}"
+            f"{notif.repo_owner}/{notif.repo_name}  •  {notif.subject_type}  •  {notif.reason}"
         )
         if notif.ci_status:
             ci_style = "green" if notif.ci_status == "success" else "red"

@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from forge_triage.db import get_notification, get_notification_count, get_sync_meta, upsert_notification
+from forge_triage.db import (
+    get_notification,
+    get_notification_count,
+    get_sync_meta,
+    upsert_notification,
+)
 from forge_triage.sync import sync
 from tests.conftest import NotificationRow
 
