@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     import sqlite3
+    from collections.abc import Callable
 
 from forge_triage.db import (
     get_sync_meta,
@@ -23,6 +24,7 @@ from forge_triage.github import (
 )
 from forge_triage.priority import compute_priority
 
+DEFAULT_MAX_NOTIFICATIONS = 1000
 COMMENT_PRELOAD_COUNT = 20
 COMMENT_CONCURRENCY = 5
 
@@ -141,17 +143,22 @@ async def _preload_comments_for_top_n(
 async def sync(
     conn: sqlite3.Connection,
     token: str,
+    *,
+    max_notifications: int = DEFAULT_MAX_NOTIFICATIONS,
+    on_progress: Callable[[int, int], None] | None = None,
 ) -> SyncResult:
     """Full sync: fetch notifications, compute priorities, pre-load comments."""
     since = get_sync_meta(conn, "last_sync_at")
 
-    # Fetch notifications
+    # Fetch notifications (capped to avoid unbounded API calls)
     raw_notifications = await fetch_notifications(token, since=since)
+    raw_notifications = raw_notifications[:max_notifications]
 
     new_count = 0
     updated_count = 0
+    total_to_process = len(raw_notifications)
 
-    for notif in raw_notifications:
+    for idx, notif in enumerate(raw_notifications, 1):
         notification_id = notif["id"]
         repo_full_name = notif["repository"]["full_name"]
         subject_type = notif["subject"]["type"]
@@ -177,6 +184,9 @@ async def sync(
             updated_count += 1
 
         upsert_notification(conn, row)
+
+        if on_progress is not None:
+            on_progress(idx, total_to_process)
 
     # Pre-load comments for top priority items
     await _preload_comments_for_top_n(conn, token)

@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 from forge_triage.db import SqlWriteBlockedError, delete_notification, execute_sql, open_db
 from forge_triage.github import get_github_token, mark_as_read
-from forge_triage.sync import sync
+from forge_triage.sync import DEFAULT_MAX_NOTIFICATIONS, sync
 
 if TYPE_CHECKING:
     import sqlite3
@@ -19,12 +19,25 @@ COL_TITLE_MAX = 48
 COL_REPO_MAX = 28
 
 
-def _cmd_sync(_args: argparse.Namespace) -> None:
+def _print_progress(current: int, total: int) -> None:
+    """Print a progress bar to stderr."""
+    width = 40
+    filled = int(width * current / total) if total > 0 else 0
+    bar = "█" * filled + "░" * (width - filled)
+    print(f"\r  {bar} {current}/{total}", end="", file=sys.stderr, flush=True)
+    if current == total:
+        print(file=sys.stderr)
+
+
+def _cmd_sync(args: argparse.Namespace) -> None:
     """Run sync: fetch notifications from GitHub."""
     token = get_github_token()
     conn = open_db()
+    max_n: int = args.max
     try:
-        result = asyncio.run(sync(conn, token))
+        result = asyncio.run(
+            sync(conn, token, max_notifications=max_n, on_progress=_print_progress)
+        )
         print(f"Synced: {result.new} new, {result.updated} updated, {result.total} total")
     finally:
         conn.close()
@@ -126,10 +139,7 @@ def _cmd_sql(args: argparse.Namespace) -> None:
         elif args.json:
             print(
                 json.dumps(
-                    [
-                        dict(zip(result.columns, row, strict=True))
-                        for row in result.rows
-                    ],
+                    [dict(zip(result.columns, row, strict=True)) for row in result.rows],
                     indent=2,
                 )
             )
@@ -218,9 +228,7 @@ def _launch_tui() -> None:
     )
 
     async def _run() -> None:
-        worker = asyncio.create_task(
-            backend_worker(request_queue, response_queue, conn, token)
-        )
+        worker = asyncio.create_task(backend_worker(request_queue, response_queue, conn, token))
         try:
             await app.run_async()
         finally:
@@ -240,6 +248,12 @@ def main(argv: list[str] | None = None) -> None:
     # sync
     sync_parser = subparsers.add_parser("sync", help="Fetch notifications from GitHub")
     sync_parser.add_argument("-v", "--verbose", action="store_true")
+    sync_parser.add_argument(
+        "--max",
+        type=int,
+        default=DEFAULT_MAX_NOTIFICATIONS,
+        help=f"Maximum notifications to process (default: {DEFAULT_MAX_NOTIFICATIONS})",
+    )
 
     # ls
     ls_parser = subparsers.add_parser("ls", help="List notifications")

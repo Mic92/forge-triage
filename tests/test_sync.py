@@ -152,3 +152,71 @@ async def test_sync_null_subject_url(tmp_db: sqlite3.Connection, httpx_mock: HTT
     assert row is not None
     assert row["subject_url"] is None
     assert row["html_url"] is None
+
+
+async def test_sync_respects_max_notifications(
+    tmp_db: sqlite3.Connection, httpx_mock: HTTPXMock
+) -> None:
+    """Sync stops fetching after max_notifications is reached."""
+    # Return 3 notifications but set limit to 2
+    notifs = []
+    for i in range(3):
+        n = dict(NOTIFICATION_1)
+        n["id"] = str(3001 + i)
+        n["updated_at"] = f"2026-02-09T0{7 + i}:00:00Z"
+        notifs.append(n)
+
+    httpx_mock.add_response(
+        url="https://api.github.com/notifications",
+        json=notifs,
+        headers=_stub_rate_limit(),
+    )
+    # Mock PR + CI for 2 notifications (only 2 will be processed)
+    for _ in range(2):
+        _mock_pr_and_ci(
+            httpx_mock,
+            "https://api.github.com/repos/NixOS/nixpkgs/pulls/12345",
+            "success",
+        )
+    # Mock comments pre-load
+    for _ in range(2):
+        httpx_mock.add_response(
+            url="https://api.github.com/repos/NixOS/nixpkgs/issues/12345/comments",
+            json=[],
+            headers=_stub_rate_limit(),
+        )
+
+    result = await sync(tmp_db, "ghp_test", max_notifications=2)
+
+    assert result.new == 2
+    assert result.total == 2
+
+
+async def test_sync_progress_callback(tmp_db: sqlite3.Connection, httpx_mock: HTTPXMock) -> None:
+    """Sync calls the progress callback as it processes notifications."""
+    httpx_mock.add_response(
+        url="https://api.github.com/notifications",
+        json=[NOTIFICATION_1],
+        headers=_stub_rate_limit(),
+    )
+    _mock_pr_and_ci(
+        httpx_mock,
+        "https://api.github.com/repos/NixOS/nixpkgs/pulls/12345",
+        "success",
+    )
+    httpx_mock.add_response(
+        url="https://api.github.com/repos/NixOS/nixpkgs/issues/12345/comments",
+        json=[],
+        headers=_stub_rate_limit(),
+    )
+
+    progress_calls: list[tuple[int, int]] = []
+
+    def on_progress(current: int, total: int) -> None:
+        progress_calls.append((current, total))
+
+    await sync(tmp_db, "ghp_test", on_progress=on_progress)
+
+    # Should have been called once (1 notification processed)
+    assert len(progress_calls) == 1
+    assert progress_calls[0] == (1, 1)
