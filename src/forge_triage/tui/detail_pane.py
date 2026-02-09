@@ -1,26 +1,29 @@
-"""Detail pane widget — shows notification metadata and comments."""
+"""Detail pane widget — preview pane showing author, description, and labels."""
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING
 
 from textual.widgets import Static
 
-from forge_triage.db import get_comments, get_notification, update_last_viewed
+from forge_triage.db import get_notification, update_last_viewed
+from forge_triage.pr_db import get_pr_details
+from forge_triage.tui.widgets.markdown_light import render_markdown
 
 if TYPE_CHECKING:
     import sqlite3
 
 
 class DetailPane(Static):
-    """Displays the full detail of the selected notification."""
+    """Preview pane in the split layout — shows author, description, and labels."""
 
     def __init__(self, conn: sqlite3.Connection, *, id: str | None = None) -> None:  # noqa: A002
         super().__init__("Select a notification to view details.", id=id)
         self._conn = conn
 
     def show_notification(self, notification_id: str | None) -> None:
-        """Update the pane with notification details and comments."""
+        """Update the pane with notification preview (author, description, labels)."""
         if notification_id is None:
             self.update("No notification selected.")
             return
@@ -39,27 +42,30 @@ class DetailPane(Static):
         parts.append(
             f"{notif.repo_owner}/{notif.repo_name}  •  {notif.subject_type}  •  {notif.reason}"
         )
-        if notif.ci_status:
-            ci_style = "green" if notif.ci_status == "success" else "red"
-            parts.append(f"CI: [{ci_style}]{notif.ci_status}[/{ci_style}]")
-        parts.append("")
 
-        # Comments
-        comments = get_comments(self._conn, notification_id)
-        last_viewed = notif.last_viewed_at
+        # Show PR-specific preview data if cached
+        pr_details = get_pr_details(self._conn, notification_id)
+        if pr_details is not None:
+            parts.append(f"Author: [bold]{pr_details.author}[/bold]")
 
-        if notif.comments_loaded and comments:
-            parts.append(f"[bold]Comments ({len(comments)}):[/bold]")
+            # Labels
+            try:
+                labels: list[str] = json.loads(pr_details.labels_json)
+            except (json.JSONDecodeError, TypeError):
+                labels = []
+            if labels:
+                label_tags = " ".join(f"[reverse] {lbl} [/reverse]" for lbl in labels)
+                parts.append(label_tags)
+
             parts.append("")
-            for comment in comments:
-                is_new = last_viewed is not None and comment.created_at > last_viewed
-                author_style = "[bold yellow]" if is_new else "[bold]"
-                parts.append(f"{author_style}{comment.author}[/] — {comment.created_at}")
-                parts.append(comment.body)
-                parts.append("")
-        elif not notif.comments_loaded:
-            parts.append("[dim]Loading comments…[/dim]")
+
+            # Description with light Markdown
+            if pr_details.body:
+                parts.append(render_markdown(pr_details.body))
+            else:
+                parts.append("[dim]No description provided.[/dim]")
         else:
-            parts.append("[dim]No comments.[/dim]")
+            parts.append("")
+            parts.append("[dim]Press Enter to load full details.[/dim]")
 
         self.update("\n".join(parts))

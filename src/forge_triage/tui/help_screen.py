@@ -12,11 +12,12 @@ if TYPE_CHECKING:
     from textual.app import ComposeResult
     from textual.binding import BindingType
 
-_HELP_TEXT = """\
-[bold]Keybindings[/bold]
+_LIST_HELP = """\
+[bold]Notification List Keybindings[/bold]
 
   [bold]j / ↓[/bold]     Move down
   [bold]k / ↑[/bold]     Move up
+  [bold]Enter[/bold]     Open detail view
   [bold]d[/bold]         Mark done (single)
   [bold]D[/bold]         Mark done (selected)
   [bold]x[/bold]         Toggle selection
@@ -28,6 +29,24 @@ _HELP_TEXT = """\
   [bold]g[/bold]         Toggle repo grouping
   [bold]?[/bold]         This help
   [bold]q[/bold]         Quit
+
+Press [bold]?[/bold] or [bold]Escape[/bold] to dismiss.
+"""
+
+_DETAIL_HELP = """\
+[bold]Detail View Keybindings[/bold]
+
+  [bold]1[/bold]         Description tab
+  [bold]2[/bold]         Conversations tab
+  [bold]3[/bold]         Files Changed tab
+  [bold]d[/bold]         Mark done & go back
+  [bold]o[/bold]         Open in browser
+  [bold]r[/bold]         Refresh PR data
+  [bold]:[/bold]         Open command palette
+  [bold]Ctrl+p[/bold]   Open command palette
+  [bold]Escape[/bold]    Go back
+  [bold]?[/bold]         This help
+  [bold]q[/bold]         Go back
 
 Press [bold]?[/bold] or [bold]Escape[/bold] to dismiss.
 """
@@ -53,10 +72,16 @@ class HelpScreen(ModalScreen[None]):
     }
     """
 
+    def __init__(self, *, context: str = "list") -> None:
+        """Initialize with context: 'list' for main view, 'detail' for detail view."""
+        super().__init__()
+        self._help_context = context
+
     def compose(self) -> ComposeResult:
         """Create the help content."""
+        text = _DETAIL_HELP if self._help_context == "detail" else _LIST_HELP
         with Center(), Middle():
-            yield Static(_HELP_TEXT, markup=True)
+            yield Static(text, markup=True)
 
     def action_dismiss_help(self) -> None:
         """Dismiss the help screen."""

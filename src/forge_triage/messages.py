@@ -28,7 +28,49 @@ class PreLoadCommentsRequest:
     top_n: int = 20
 
 
-type Request = MarkDoneRequest | FetchCommentsRequest | PreLoadCommentsRequest
+@dataclass(frozen=True)
+class FetchPRDetailRequest:
+    """Ask the backend to fetch full PR data (metadata, reviews, files)."""
+
+    notification_id: str
+
+
+@dataclass(frozen=True)
+class PostReviewCommentRequest:
+    """Ask the backend to post a reply to a review thread."""
+
+    notification_id: str
+    comment_id: int
+    body: str
+
+
+@dataclass(frozen=True)
+class SubmitReviewRequest:
+    """Ask the backend to submit a PR review (approve/request changes)."""
+
+    notification_id: str
+    event: str  # "APPROVE" or "REQUEST_CHANGES"
+    body: str = ""
+
+
+@dataclass(frozen=True)
+class ResolveThreadRequest:
+    """Ask the backend to resolve or unresolve a review thread."""
+
+    notification_id: str
+    thread_node_id: str
+    resolve: bool = True
+
+
+type Request = (
+    MarkDoneRequest
+    | FetchCommentsRequest
+    | PreLoadCommentsRequest
+    | FetchPRDetailRequest
+    | PostReviewCommentRequest
+    | SubmitReviewRequest
+    | ResolveThreadRequest
+)
 
 
 # === Responses (Backend → TUI) ===
@@ -65,4 +107,49 @@ class ErrorResult:
     error: str
 
 
-type Response = MarkDoneResult | FetchCommentsResult | PreLoadComplete | ErrorResult
+@dataclass(frozen=True)
+class FetchPRDetailResult:
+    """Report that PR detail data was fetched (or failed)."""
+
+    notification_id: str = ""
+    success: bool = True
+    error: str = ""
+
+
+@dataclass(frozen=True)
+class PostReviewCommentResult:
+    """Report that a review reply was posted (or failed)."""
+
+    notification_id: str = ""
+    success: bool = True
+    error: str = ""
+
+
+@dataclass(frozen=True)
+class SubmitReviewResult:
+    """Report that a review was submitted (or failed)."""
+
+    notification_id: str = ""
+    success: bool = True
+    error: str = ""
+
+
+@dataclass(frozen=True)
+class ResolveThreadResult:
+    """Report that a thread was resolved/unresolved (or failed)."""
+
+    notification_id: str = ""
+    success: bool = True
+    error: str = ""
+
+
+type Response = (
+    MarkDoneResult
+    | FetchCommentsResult
+    | PreLoadComplete
+    | ErrorResult
+    | FetchPRDetailResult
+    | PostReviewCommentResult
+    | SubmitReviewResult
+    | ResolveThreadResult
+)

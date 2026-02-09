@@ -1,4 +1,4 @@
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Split-pane TUI layout
 The system SHALL provide a Textual-based TUI with a resizable split-pane layout: a notification list in the upper pane and a preview pane in the lower pane. The split divider SHALL be draggable with the mouse to resize the panes. The preview pane SHALL show the currently highlighted notification's author, description, and labels. CI status SHALL NOT be displayed in the preview pane.
@@ -18,6 +18,8 @@ The system SHALL provide a Textual-based TUI with a resizable split-pane layout:
 #### Scenario: Empty inbox
 - **WHEN** the user launches the TUI with no notifications in the database
 - **THEN** the system SHALL display a message indicating the inbox is empty and suggesting to run `forge-triage sync`
+
+## ADDED Requirements
 
 ### Requirement: Open detail view from notification list
 The system SHALL allow the user to press `Enter` on a notification in the list to open a full-screen detail view. The detail view SHALL be pushed as a new screen, replacing the notification list and preview pane.
@@ -86,7 +88,7 @@ The system SHALL display PR review conversations as threaded discussions in the 
 
 ## Testing
 
-- **TUI snapshot tests**: Snapshot the resizable split pane at default and custom ratios. Snapshot the preview pane showing author, description, and labels (with and without labels). Verify CI status is NOT shown in the preview pane. Snapshot the notification list with notifications spanning all subject state variants (open/closed issue, open/closed/merged PR, unknown type) to verify correct nerdfont icons and colors in the first column.
-- **TUI integration tests**: Use `App.run_test()` to verify `Enter` pushes the detail screen, dragging the divider resizes the panes, and list state is preserved after returning from the detail view. Verify rendered first column matches the expected icon for each row.
+- **TUI snapshot tests**: Snapshot the resizable split pane at default and custom ratios. Snapshot the preview pane showing author, description, and labels (with and without labels). Verify CI status is NOT shown in the preview pane.
+- **TUI integration tests**: Use `App.run_test()` to verify `Enter` pushes the detail screen, dragging the divider resizes the panes, and list state is preserved after returning from the detail view.
 - **Keybinding context tests**: Test that `q` quits from the main list, `q` pops the screen from the detail view, `Escape` clears filter in list view, and `Escape` pops the screen from the detail view. Test `r` refreshes the list vs refreshes the PR.
 - **Conversations tab tests**: Snapshot threaded conversations with resolved/unresolved threads. Test toggle visibility of resolved threads. Test empty state.

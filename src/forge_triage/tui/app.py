@@ -17,22 +17,26 @@ from forge_triage.messages import (
     ErrorResult,
     FetchCommentsRequest,
     FetchCommentsResult,
+    FetchPRDetailResult,
     MarkDoneRequest,
     MarkDoneResult,
-    PreLoadCommentsRequest,
     PreLoadComplete,
+    Request,
+    Response,
 )
 from forge_triage.tui.detail_pane import DetailPane
+from forge_triage.tui.detail_screen import DetailScreen
 from forge_triage.tui.help_screen import HelpScreen
 from forge_triage.tui.notification_list import NotificationList
+from forge_triage.tui.widgets.split_container import SplitContainer
 
 if TYPE_CHECKING:
     import sqlite3
 
     from textual.binding import BindingType
 
-type _Request = MarkDoneRequest | FetchCommentsRequest | PreLoadCommentsRequest
-type _Response = MarkDoneResult | FetchCommentsResult | PreLoadComplete | ErrorResult
+type _Request = Request
+type _Response = Response
 
 POLL_INTERVAL = 0.1
 
@@ -47,11 +51,9 @@ class TriageApp(App[None]):
         height: 1fr;
     }
     #list-pane {
-        height: 2fr;
-        border-bottom: solid $primary;
+        overflow-y: auto;
     }
     #detail-pane {
-        height: 1fr;
         padding: 1 2;
         overflow-y: auto;
     }
@@ -102,16 +104,19 @@ class TriageApp(App[None]):
     def compose(self) -> ComposeResult:
         """Create the split-pane layout."""
         yield Header()
-        with Vertical(id="main-container"):
-            total = get_notification_count(self._conn)
-            if total == 0:
+        total = get_notification_count(self._conn)
+        if total == 0:
+            with Vertical(id="main-container"):
                 yield Static(
                     "Inbox is empty. Run [bold]forge-triage sync[/bold] to fetch notifications.",
                     id="empty-message",
                 )
-            else:
-                yield NotificationList(self._conn, id="list-pane")
-                yield DetailPane(self._conn, id="detail-pane")
+        else:
+            yield SplitContainer(
+                NotificationList(self._conn, id="list-pane"),
+                DetailPane(self._conn, id="detail-pane"),
+                id="main-container",
+            )
         yield Input(placeholder="Filter…", id="filter-input")
         yield Footer()
 
@@ -139,6 +144,10 @@ class TriageApp(App[None]):
             return self.query_one(DetailPane)
         except NoMatches:
             return None
+
+    def on_data_table_row_selected(self) -> None:
+        """Open the detail view when Enter is pressed on a row."""
+        self.action_open_detail()
 
     def on_data_table_row_highlighted(self) -> None:
         """Update detail pane when cursor moves."""
@@ -173,6 +182,8 @@ class TriageApp(App[None]):
             self._on_fetch_comments_result(resp)
         elif isinstance(resp, PreLoadComplete):
             self._on_preload_complete(resp)
+        elif isinstance(resp, FetchPRDetailResult):
+            self._on_fetch_pr_detail_result(resp)
         elif isinstance(resp, ErrorResult):
             self._on_error_result(resp)
 
@@ -203,6 +214,16 @@ class TriageApp(App[None]):
             nid = nlist.selected_notification_id
             if nid is not None:
                 detail.show_notification(nid)
+
+    def _on_fetch_pr_detail_result(self, result: FetchPRDetailResult) -> None:
+        """Handle fetched PR details — refresh detail screen if active."""
+        if result.success:
+            # If we're on the detail screen, re-render
+            if isinstance(self.screen, DetailScreen):
+                self.screen._render_content()  # noqa: SLF001
+            self.notify("PR details loaded")
+        else:
+            self.notify(f"Failed to load PR details: {result.error}", severity="error")
 
     def _on_error_result(self, result: ErrorResult) -> None:
         """Handle error — show notification."""
@@ -304,6 +325,16 @@ class TriageApp(App[None]):
     def action_toggle_group(self) -> None:
         """Toggle grouped-by-repo view (placeholder)."""
         self.notify("Grouping not yet implemented")
+
+    def action_open_detail(self) -> None:
+        """Open the full-screen detail view for the selected notification."""
+        nlist = self._get_notification_list()
+        if nlist is None:
+            return
+        nid = nlist.selected_notification_id
+        if nid is None:
+            return
+        self.push_screen(DetailScreen(self._conn, nid, request_queue=self._request_queue))
 
     def action_show_help(self) -> None:
         """Show the help overlay."""
