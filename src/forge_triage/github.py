@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 API_BASE = "https://api.github.com"
 GRAPHQL_URL = "https://api.github.com/graphql"
 GRAPHQL_BATCH_SIZE = 100  # nodes per query (conservative vs GitHub's ~500 limit)
+REQUEST_TIMEOUT = 60.0  # seconds — GraphQL batch queries can be slow
 
 _SUBJECT_URL_RE = re.compile(
     r"https://api\.github\.com/repos/(?P<owner>[^/]+)/(?P<repo>[^/]+)"
@@ -239,7 +240,7 @@ async def fetch_notifications(
         params["since"] = since
 
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}
-    async with httpx.AsyncClient(headers=headers) as client:
+    async with httpx.AsyncClient(headers=headers, timeout=REQUEST_TIMEOUT) as client:
         next_url: str | None = f"{API_BASE}/notifications"
         is_first = True
         while next_url:
@@ -264,7 +265,7 @@ async def fetch_comments(
     """Fetch comments from a GitHub issue/PR comments URL."""
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}
     comments: list[dict[str, Any]] = []
-    async with httpx.AsyncClient(headers=headers) as client:
+    async with httpx.AsyncClient(headers=headers, timeout=REQUEST_TIMEOUT) as client:
         next_url: str | None = comments_url
         while next_url:
             response = await client.get(next_url)
@@ -301,7 +302,7 @@ async def fetch_subject_details(
 
     # Batch into chunks
     subject_items = list(subjects.items())
-    async with httpx.AsyncClient(headers=headers) as client:
+    async with httpx.AsyncClient(headers=headers, timeout=REQUEST_TIMEOUT) as client:
         for start in range(0, len(subject_items), GRAPHQL_BATCH_SIZE):
             batch = dict(subject_items[start : start + GRAPHQL_BATCH_SIZE])
             query, alias_map = _build_subject_details_query(batch)
@@ -325,7 +326,7 @@ async def fetch_subject_details(
 async def mark_as_read(token: str, thread_id: str) -> None:
     """Mark a notification thread as read on GitHub."""
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}
-    async with httpx.AsyncClient(headers=headers) as client:
+    async with httpx.AsyncClient(headers=headers, timeout=REQUEST_TIMEOUT) as client:
         response = await client.patch(f"{API_BASE}/notifications/threads/{thread_id}")
         _check_rate_limit(response)
         response.raise_for_status()
