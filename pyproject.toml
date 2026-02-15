@@ -43,3 +43,4 @@ ignore = [
 testpaths = ["tests"]
 pythonpath = ["src"]
 asyncio_mode = "auto"
+addopts = "-n auto"

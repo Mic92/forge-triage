@@ -42,6 +42,7 @@
               pytestCheckHook
               pytest-asyncio
               pytest-httpx
+              pytest-xdist
             ];
 
             meta = {
@@ -68,6 +69,7 @@
                   pytest
                   pytest-asyncio
                   pytest-httpx
+                  pytest-xdist
                   mypy
                 ]
               ))

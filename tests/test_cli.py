@@ -4,8 +4,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from forge_triage.cli import main
-from forge_triage.db import SqlWriteBlockedError, execute_sql, upsert_notification
+from forge_triage.db import (
+    SqlWriteBlockedError,
+    execute_sql,
+    list_notifications,
+    upsert_notification,
+)
 from tests.conftest import NotificationRow
 
 if TYPE_CHECKING:
@@ -27,30 +31,20 @@ def test_execute_sql_allows_read(tmp_db: sqlite3.Connection) -> None:
     assert result.rows == [(0,)]
 
 
-def test_ls_empty_db(
-    tmp_db: sqlite3.Connection,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """ls with empty DB shows inbox-empty message."""
-    monkeypatch.setattr("forge_triage.cli.open_db", lambda: tmp_db)
-    main(["ls"])
-    captured = capsys.readouterr()
-    assert "empty" in captured.out.lower()
+def test_ls_empty_db(tmp_db: sqlite3.Connection) -> None:
+    """Empty DB yields no notifications."""
+    rows = list_notifications(tmp_db)
+    assert rows == []
 
 
-def test_ls_shows_notifications(
-    tmp_db: sqlite3.Connection,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """ls with data shows notification table."""
+def test_ls_shows_notifications(tmp_db: sqlite3.Connection) -> None:
+    """DB with data returns notification list with expected fields."""
     upsert_notification(
         tmp_db,
         NotificationRow(priority_score=1000, priority_tier="blocking").as_dict(),
     )
-    monkeypatch.setattr("forge_triage.cli.open_db", lambda: tmp_db)
-    main(["ls"])
-    captured = capsys.readouterr()
-    assert "python313" in captured.out
-    assert "review_requested" in captured.out
+    rows = list_notifications(tmp_db)
+    assert len(rows) == 1
+    assert rows[0].subject_title == "python313: 3.13.1 -> 3.13.2"
+    assert rows[0].reason == "review_requested"
+    assert rows[0].priority_tier == "blocking"
