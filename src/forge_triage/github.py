@@ -212,12 +212,16 @@ class RateLimitError(Exception):
 
 def get_github_token() -> str:
     """Obtain a GitHub token via `gh auth token`."""
-    result = subprocess.run(
-        ["gh", "auth", "token"],  # noqa: S607
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            ["gh", "auth", "token"],  # noqa: S607
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        msg = "GitHub CLI (gh) not found. Install from https://cli.github.com"
+        raise AuthError(msg) from None
     if result.returncode != 0:
         msg = "gh CLI not authenticated. Run: gh auth login"
         raise AuthError(msg)
