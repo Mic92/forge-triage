@@ -102,7 +102,7 @@ async def _handle_fetch_comments(
         {
             "comment_id": str(c["id"]),
             "notification_id": req.notification_id,
-            "author": c["user"]["login"],
+            "author": c["user"]["login"] if c.get("user") else "[deleted]",
             "body": c["body"],
             "created_at": c["created_at"],
             "updated_at": c["updated_at"],

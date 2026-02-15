@@ -121,7 +121,7 @@ async def _preload_comments_for_top_n(
                 {
                     "comment_id": str(c["id"]),
                     "notification_id": notification_id,
-                    "author": c["user"]["login"],
+                    "author": c["user"]["login"] if c.get("user") else "[deleted]",
                     "body": c["body"],
                     "created_at": c["created_at"],
                     "updated_at": c["updated_at"],
