@@ -155,7 +155,8 @@ class DetailScreen(Screen[None]):
         for comments in thread_groups.values():
             first = comments[0]
             resolved = " (Resolved)" if first.is_resolved else ""
-            parts.append(f"### `{first.path}:{first.line}`{resolved}")
+            location = f"{first.path}:{first.line}" if first.line is not None else first.path
+            parts.append(f"### `{location}`{resolved}")
             parts.append("")
 
             for c in comments:
