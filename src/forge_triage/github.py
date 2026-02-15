@@ -72,6 +72,20 @@ fragment IssueDetails on Issue {
 }"""
 
 
+_GRAPHQL_IDENTIFIER_RE = re.compile(r"^[a-zA-Z0-9._-]+$")
+
+
+def _validate_graphql_identifier(s: str) -> str:
+    """Validate that a string is safe to interpolate into a GraphQL query.
+
+    Raises ValueError if the string contains characters outside [a-zA-Z0-9._-].
+    """
+    if not _GRAPHQL_IDENTIFIER_RE.match(s):
+        msg = f"Invalid GraphQL identifier: {s!r}"
+        raise ValueError(msg)
+    return s
+
+
 def _build_subject_details_query(
     subjects: dict[str, ParsedSubject],
 ) -> tuple[str, dict[str, str]]:
@@ -93,6 +107,9 @@ def _build_subject_details_query(
     has_issue = False
 
     for repo_idx, ((owner, repo), items) in enumerate(repos.items()):
+        _validate_graphql_identifier(owner)
+        _validate_graphql_identifier(repo)
+
         node_fragments: list[str] = []
         for nid, parsed in items:
             if parsed.kind == "pull_request":

@@ -3,8 +3,17 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from unittest.mock import patch
 
-from forge_triage.github import fetch_notifications, fetch_subject_details
+import pytest
+
+from forge_triage.github import (
+    AuthError,
+    _validate_graphql_identifier,
+    fetch_notifications,
+    fetch_subject_details,
+    get_github_token,
+)
 
 if TYPE_CHECKING:
     from pytest_httpx import HTTPXMock
@@ -198,3 +207,28 @@ async def test_fetch_subject_details_partial_error(httpx_mock: HTTPXMock) -> Non
 
     assert result["ok1"] == ("open", None)
     assert result["bad1"] == (None, None)
+
+
+# ---------- get_github_token ----------
+
+
+def test_get_github_token_raises_auth_error_when_gh_missing() -> None:
+    """get_github_token raises AuthError (not FileNotFoundError) when gh CLI is absent."""
+    with (
+        patch("forge_triage.github.subprocess.run", side_effect=FileNotFoundError),
+        pytest.raises(AuthError, match="not found"),
+    ):
+        get_github_token()
+
+
+# ---------- GraphQL identifier validation ----------
+
+
+def test_validate_graphql_identifier_rejects_injection() -> None:
+    """Strings with GraphQL-breaking characters are rejected."""
+    with pytest.raises(ValueError, match="Invalid GraphQL identifier"):
+        _validate_graphql_identifier('evil") { __schema { types { name } } }')
+    with pytest.raises(ValueError, match="Invalid GraphQL identifier"):
+        _validate_graphql_identifier("name with spaces")
+    with pytest.raises(ValueError, match="Invalid GraphQL identifier"):
+        _validate_graphql_identifier("")
