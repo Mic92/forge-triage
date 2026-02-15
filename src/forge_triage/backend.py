@@ -89,7 +89,10 @@ async def _handle_fetch_comments(
         return FetchCommentsResult(notification_id=req.notification_id, comment_count=0)
 
     notif = json.loads(notif_row.raw_json)
-    subject_url: str = notif["subject"]["url"]
+    subject_url: str | None = notif["subject"]["url"]
+
+    if subject_url is None:
+        return FetchCommentsResult(notification_id=req.notification_id, comment_count=0)
 
     # Build comments URL
     if "/pulls/" in subject_url:

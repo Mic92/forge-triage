@@ -97,3 +97,40 @@ async def test_fetch_comments_deleted_user(
     assert "alive-user" in authors
 
     task.cancel()
+
+
+async def test_fetch_comments_null_subject_url(
+    tmp_db: sqlite3.Connection,
+) -> None:
+    """CI activity notifications have subject.url=null — should return 0 comments, not crash."""
+    ci_raw_json = (
+        '{"id":"2001","repository":{"full_name":"NixOS/nixpkgs","owner":{"login":"NixOS"},"name":"nixpkgs"},'
+        '"subject":{"type":"CheckSuite","title":"CI activity","url":null,'
+        '"latest_comment_url":null},"reason":"ci_activity","updated_at":"2026-02-09T07:00:00Z","unread":true,'
+        '"url":"https://api.github.com/notifications/threads/2001"}'
+    )
+    upsert_notification(
+        tmp_db,
+        NotificationRow(
+            notification_id="2001",
+            subject_type="CheckSuite",
+            subject_title="CI activity",
+            subject_url=None,  # type: ignore[arg-type]
+            html_url="https://github.com/NixOS/nixpkgs",
+            reason="ci_activity",
+            raw_json=ci_raw_json,
+        ).as_dict(),
+    )
+
+    req_q: asyncio.Queue[Request] = asyncio.Queue()
+    resp_q: asyncio.Queue[Response] = asyncio.Queue()
+
+    task = asyncio.create_task(backend_worker(req_q, resp_q, tmp_db, "ghp_test"))
+
+    await req_q.put(FetchCommentsRequest(notification_id="2001"))
+    result = await asyncio.wait_for(resp_q.get(), timeout=5)
+
+    assert isinstance(result, FetchCommentsResult)
+    assert result.comment_count == 0
+
+    task.cancel()
