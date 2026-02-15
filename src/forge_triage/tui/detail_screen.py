@@ -165,8 +165,12 @@ class DetailScreen(Screen[None]):
         yield Footer()
 
     def on_mount(self) -> None:
-        """Load initial content."""
+        """Load initial content and start background fetch for PRs."""
         self.refresh_content()
+        if self._is_pr and self._request_queue is not None:
+            self._request_queue.put_nowait(
+                FetchPRDetailRequest(notification_id=self._notification_id)
+            )
 
     def refresh_content(self) -> None:
         """Render content into the appropriate widgets."""
@@ -207,7 +211,7 @@ class DetailScreen(Screen[None]):
                 parts.append("*No description provided.*")
         else:
             parts.append("")
-            parts.append("*PR details not loaded. Press `r` to refresh.*")
+            parts.append("*⏳ Loading PR details…*")
 
         # Review threads
         parts.append("")
@@ -226,7 +230,7 @@ class DetailScreen(Screen[None]):
         if not files:
             self._update_static(
                 "#files-content",
-                "[dim]No files changed data loaded. Press [bold]r[/bold] to refresh.[/dim]",
+                "[dim]⏳ Loading PR details…[/dim]",
             )
             return
 

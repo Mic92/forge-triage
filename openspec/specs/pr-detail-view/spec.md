@@ -34,20 +34,20 @@ The system SHALL allow switching between tabs using number keys `1`, `2`, and `3
 - **WHEN** the user switches away from a tab and then switches back
 - **THEN** the system SHALL restore the tab's scroll position and content state
 
-### Requirement: Lazy loading of tab content
-The system SHALL load tab content lazily — fetching data from the API only when a tab is first activated. The Description tab SHALL load its data immediately when the detail view opens. The Conversations and Files Changed tabs SHALL fetch their data on first activation.
+### Requirement: Automatic background loading of PR data
+The system SHALL automatically fetch PR details (metadata, review threads, and changed files) in the background when the detail view opens for a PullRequest notification. If cached data exists, it SHALL be displayed immediately while the background fetch runs. All tabs SHALL update automatically when the fetch completes.
 
-#### Scenario: First activation of Conversations tab
-- **WHEN** the user switches to the Conversations tab for the first time
-- **THEN** the system SHALL fetch review threads and comments from the GitHub API, display a loading indicator during the fetch, and render the conversations once loaded
+#### Scenario: Opening a PR with no cached data
+- **WHEN** the user opens a PR detail view and no cached data exists
+- **THEN** the system SHALL display a loading indicator ("⏳ Loading PR details…") in the Conversation tab and Files Changed tab while fetching data in the background
 
-#### Scenario: First activation of Files Changed tab
-- **WHEN** the user switches to the Files Changed tab for the first time
-- **THEN** the system SHALL fetch the PR's changed files from the GitHub API, display a loading indicator during the fetch, and render the diffs once loaded
+#### Scenario: Opening a PR with cached data
+- **WHEN** the user opens a PR detail view and cached data exists in the database
+- **THEN** the system SHALL immediately render the cached data and simultaneously fetch fresh data in the background, re-rendering all tabs when the fetch completes
 
-#### Scenario: Subsequent tab activation uses cached data
-- **WHEN** the user switches to a tab that has already been loaded
-- **THEN** the system SHALL display the cached content without making additional API calls
+#### Scenario: Subsequent tab activation uses loaded data
+- **WHEN** the user switches to a tab after PR data has been fetched
+- **THEN** the system SHALL display the loaded content without making additional API calls
 
 ### Requirement: Back navigation from detail view
 The system SHALL allow the user to return to the notification list by pressing `q` or `Escape` in the detail view. The notification list SHALL be restored to its previous state (scroll position, selected item, filter).
