@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS pr_reviews (
 
 CREATE TABLE IF NOT EXISTS review_comments (
     comment_id        TEXT PRIMARY KEY,
-    review_id         TEXT NOT NULL
+    review_id         TEXT
         REFERENCES pr_reviews(review_id) ON DELETE CASCADE,
     notification_id   TEXT NOT NULL
         REFERENCES notifications(notification_id) ON DELETE CASCADE,

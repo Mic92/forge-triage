@@ -28,7 +28,7 @@ class ReviewComment:
     """A review comment (part of a review thread)."""
 
     comment_id: str
-    review_id: str
+    review_id: str | None
     notification_id: str
     thread_id: str | None
     author: str

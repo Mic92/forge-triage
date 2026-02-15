@@ -119,6 +119,32 @@ def _row_to_comment(row: sqlite3.Row) -> Comment:
 # Each migration is (version, sql). Applied in order for DBs behind the latest version.
 _MIGRATIONS: list[tuple[int, str]] = [
     (1, "ALTER TABLE notifications ADD COLUMN subject_state TEXT"),
+    (
+        2,
+        # Make review_comments.review_id nullable (was NOT NULL, violating FK on
+        # comments without a known review).  SQLite cannot ALTER column constraints,
+        # so we recreate the table.  Data is a cache and will be re-fetched.
+        "DROP TABLE IF EXISTS review_comments;"
+        " CREATE TABLE review_comments ("
+        "   comment_id      TEXT PRIMARY KEY,"
+        "   review_id       TEXT REFERENCES pr_reviews(review_id) ON DELETE CASCADE,"
+        "   notification_id TEXT NOT NULL"
+        "       REFERENCES notifications(notification_id) ON DELETE CASCADE,"
+        "   thread_id       TEXT,"
+        "   author          TEXT NOT NULL,"
+        "   body            TEXT NOT NULL,"
+        "   path            TEXT,"
+        "   diff_hunk       TEXT,"
+        "   line            INTEGER,"
+        "   side            TEXT,"
+        "   in_reply_to_id  TEXT,"
+        "   is_resolved     INTEGER NOT NULL DEFAULT 0,"
+        "   created_at      TEXT NOT NULL,"
+        "   updated_at      TEXT NOT NULL"
+        " );"
+        " CREATE INDEX IF NOT EXISTS idx_review_comments_notification"
+        "   ON review_comments(notification_id, created_at);",
+    ),
 ]
 
 _LATEST_VERSION = _MIGRATIONS[-1][0] if _MIGRATIONS else 0
@@ -163,7 +189,7 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
     current_version = _get_schema_version(conn)
     for version, sql in _MIGRATIONS:
         if version > current_version:
-            conn.execute(sql)
+            conn.executescript(sql)
             current_version = version
 
     _set_schema_version(conn, current_version)

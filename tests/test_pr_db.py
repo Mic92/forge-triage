@@ -205,3 +205,33 @@ def test_cascade_delete_through_full_chain(tmp_db: sqlite3.Connection) -> None:
     assert get_pr_details(tmp_db, "1001") is None
     assert get_review_threads(tmp_db, "1001") == []
     assert get_pr_files(tmp_db, "1001") == []
+
+
+def test_review_comment_with_null_review_id(tmp_db: sqlite3.Connection) -> None:
+    """review_id=None is accepted and round-trips correctly (no FK violation)."""
+    _insert_notification(tmp_db)
+    upsert_review_comments(
+        tmp_db,
+        [
+            {
+                "comment_id": "rc-orphan",
+                "review_id": None,
+                "notification_id": "1001",
+                "thread_id": "t1",
+                "author": "reviewer",
+                "body": "Orphan comment",
+                "path": "src/main.py",
+                "diff_hunk": "@@ -1,3 +1,5 @@",
+                "line": 5,
+                "side": "RIGHT",
+                "in_reply_to_id": None,
+                "is_resolved": 0,
+                "created_at": "2026-02-09T08:00:00Z",
+                "updated_at": "2026-02-09T08:00:00Z",
+            },
+        ],
+    )
+    threads = get_review_threads(tmp_db, "1001")
+    assert len(threads) == 1
+    assert threads[0].review_id is None
+    assert threads[0].body == "Orphan comment"

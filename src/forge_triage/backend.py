@@ -177,7 +177,7 @@ async def _handle_fetch_pr_detail(
     )
     for c in comments:
         c["notification_id"] = req.notification_id
-        c["review_id"] = reviews[0]["review_id"] if reviews else "unknown"
+        c["review_id"] = None
         c.setdefault("side", "RIGHT")
         c.setdefault("in_reply_to_id", None)
     upsert_review_comments(conn, comments)

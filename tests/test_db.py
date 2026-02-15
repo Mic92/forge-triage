@@ -163,8 +163,8 @@ def test_migration_legacy_db_gets_subject_state(tmp_path: Path) -> None:
     assert row is not None
     assert row["subject_state"] is None  # existing rows get NULL
 
-    # schema_version must be set to 1
-    assert get_sync_meta(conn, "schema_version") == "1"
+    # schema_version must be set to latest
+    assert get_sync_meta(conn, "schema_version") == "2"
     conn.close()
 
 
@@ -176,7 +176,7 @@ def test_migration_idempotent(tmp_path: Path) -> None:
 
     conn2 = init_db(db_path)
     version = get_sync_meta(conn2, "schema_version")
-    assert version == "1"
+    assert version == "2"
     conn2.close()
 
 
@@ -190,6 +190,6 @@ def test_fresh_db_has_subject_state(tmp_path: Path) -> None:
     col_names = [c["name"] for c in cols]
     assert "subject_state" in col_names
 
-    # schema_version set
-    assert get_sync_meta(conn, "schema_version") == "1"
+    # schema_version set to latest
+    assert get_sync_meta(conn, "schema_version") == "2"
     conn.close()
