@@ -26,7 +26,6 @@ _LIST_HELP = """\
   [bold]/[/bold]         Filter by text
   [bold]r[/bold]         Refresh list
   [bold]Escape[/bold]    Clear filter
-  [bold]g[/bold]         Toggle repo grouping
   [bold]?[/bold]         This help
   [bold]q[/bold]         Quit
 

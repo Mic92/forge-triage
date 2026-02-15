@@ -80,7 +80,6 @@ class TriageApp(App[None]):
         Binding("escape", "clear_filter", "Clear", show=True),
         Binding("x", "toggle_select", "Select"),
         Binding("asterisk", "select_all", "Select All"),
-        Binding("g", "toggle_group", "Group"),
     ]
 
     def __init__(
@@ -321,10 +320,6 @@ class TriageApp(App[None]):
         if nlist is None:
             return
         self._selected = set(nlist._notification_ids)  # noqa: SLF001
-
-    def action_toggle_group(self) -> None:
-        """Toggle grouped-by-repo view (placeholder)."""
-        self.notify("Grouping not yet implemented")
 
     def action_open_detail(self) -> None:
         """Open the full-screen detail view for the selected notification."""
