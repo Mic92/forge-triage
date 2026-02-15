@@ -205,7 +205,7 @@ async def sync(
 
         subject_state, ci_status = subject_details.get(notification_id, (None, None))
 
-        score, tier = compute_priority(notif["reason"], ci_status, is_own_pr=False)
+        score, tier = compute_priority(notif["reason"], ci_status)
 
         row = _notification_to_row(notif, ci_status, subject_state, score, tier)
 
