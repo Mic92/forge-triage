@@ -155,6 +155,72 @@ def test_parse_review_threads_response() -> None:
     assert cursor is None
 
 
+def test_parse_null_author_deleted_account() -> None:
+    """GraphQL returns author: null for deleted accounts — all parsers must handle it."""
+    metadata_response: dict[str, object] = {
+        "data": {
+            "repository": {
+                "pullRequest": {
+                    "number": 99,
+                    "author": None,
+                    "body": "ghost PR",
+                    "labels": {"nodes": []},
+                    "baseRefName": "main",
+                    "headRefName": "fix",
+                }
+            }
+        }
+    }
+    assert parse_pr_metadata_response(metadata_response)["author"] == "[deleted]"
+
+    threads_response: dict[str, object] = {
+        "data": {
+            "repository": {
+                "pullRequest": {
+                    "reviewThreads": {
+                        "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        "nodes": [
+                            {
+                                "id": "thread-ghost",
+                                "isResolved": False,
+                                "comments": {
+                                    "nodes": [
+                                        {
+                                            "id": "rc-ghost",
+                                            "author": None,
+                                            "body": "I am a ghost",
+                                            "path": "file.py",
+                                            "diffHunk": "@@",
+                                            "line": 1,
+                                            "createdAt": "2026-01-01T00:00:00Z",
+                                            "updatedAt": "2026-01-01T00:00:00Z",
+                                        }
+                                    ]
+                                },
+                            }
+                        ],
+                    },
+                    "reviews": {
+                        "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        "nodes": [
+                            {
+                                "id": "rev-ghost",
+                                "author": None,
+                                "state": "COMMENTED",
+                                "body": "",
+                                "submittedAt": "2026-01-01T00:00:00Z",
+                            }
+                        ],
+                    },
+                }
+            }
+        }
+    }
+    comments, reviews, _, _ = parse_review_threads_response(threads_response)
+    assert comments[0]["author"] == "[deleted]"
+    assert reviews[0]["author"] == "[deleted]"
+
+
 # --- Integration tests (real control flow) ---
 
 

@@ -79,9 +79,10 @@ def parse_pr_metadata_response(response: dict[str, Any]) -> dict[str, str | int 
     """Parse a GraphQL PR metadata response into a flat dict for pr_db."""
     pr = response["data"]["repository"]["pullRequest"]
     labels = [node["name"] for node in pr.get("labels", {}).get("nodes", [])]
+    author = pr.get("author")
     return {
         "pr_number": pr["number"],
-        "author": pr["author"]["login"],
+        "author": author["login"] if author else "[deleted]",
         "body": pr.get("body"),
         "labels_json": json.dumps(labels),
         "base_ref": pr.get("baseRefName"),
@@ -105,34 +106,37 @@ def parse_review_threads_response(
     for thread in threads_data["nodes"]:
         thread_id = thread["id"]
         is_resolved = 1 if thread["isResolved"] else 0
-        comments.extend(
-            {
-                "comment_id": comment["id"],
-                "thread_id": thread_id,
-                "author": comment["author"]["login"],
-                "body": comment["body"],
-                "path": comment.get("path"),
-                "diff_hunk": comment.get("diffHunk"),
-                "line": comment.get("line"),
-                "is_resolved": is_resolved,
-                "created_at": comment["createdAt"],
-                "updated_at": comment["updatedAt"],
-            }
-            for comment in thread["comments"]["nodes"]
-        )
+        for comment in thread["comments"]["nodes"]:
+            author = comment.get("author")
+            comments.append(
+                {
+                    "comment_id": comment["id"],
+                    "thread_id": thread_id,
+                    "author": author["login"] if author else "[deleted]",
+                    "body": comment["body"],
+                    "path": comment.get("path"),
+                    "diff_hunk": comment.get("diffHunk"),
+                    "line": comment.get("line"),
+                    "is_resolved": is_resolved,
+                    "created_at": comment["createdAt"],
+                    "updated_at": comment["updatedAt"],
+                }
+            )
 
     # Reviews
     reviews_data = pr["reviews"]
-    reviews: list[dict[str, Any]] = [
-        {
-            "review_id": review["id"],
-            "author": review["author"]["login"],
-            "state": review["state"],
-            "body": review.get("body", ""),
-            "submitted_at": review["submittedAt"],
-        }
-        for review in reviews_data["nodes"]
-    ]
+    reviews: list[dict[str, Any]] = []
+    for review in reviews_data["nodes"]:
+        author = review.get("author")
+        reviews.append(
+            {
+                "review_id": review["id"],
+                "author": author["login"] if author else "[deleted]",
+                "state": review["state"],
+                "body": review.get("body", ""),
+                "submitted_at": review["submittedAt"],
+            }
+        )
 
     page_info = threads_data["pageInfo"]
     return comments, reviews, page_info["hasNextPage"], page_info.get("endCursor")
