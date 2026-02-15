@@ -9,6 +9,7 @@ from forge_triage.db import (
     delete_notification,
     get_comments,
     get_notification,
+    get_notification_ids_by_ref,
     get_sync_meta,
     init_db,
     upsert_comments,
@@ -193,3 +194,66 @@ def test_fresh_db_has_subject_state(tmp_path: Path) -> None:
     # schema_version set to latest
     assert get_sync_meta(conn, "schema_version") == "2"
     conn.close()
+
+
+# ---------- get_notification_ids_by_ref tests ----------
+
+
+def test_get_notification_ids_by_ref_matches_subject_url(tmp_db: sqlite3.Connection) -> None:
+    """get_notification_ids_by_ref matches on subject_url containing the issue/PR number."""
+    upsert_notification(
+        tmp_db,
+        NotificationRow(
+            notification_id="2001",
+            repo_owner="NixOS",
+            repo_name="nixpkgs",
+            subject_url="https://api.github.com/repos/NixOS/nixpkgs/pulls/12345",
+        ).as_dict(),
+    )
+    upsert_notification(
+        tmp_db,
+        NotificationRow(
+            notification_id="2002",
+            repo_owner="NixOS",
+            repo_name="nixpkgs",
+            subject_url="https://api.github.com/repos/NixOS/nixpkgs/issues/99999",
+        ).as_dict(),
+    )
+
+    result = get_notification_ids_by_ref(tmp_db, "NixOS", "nixpkgs", 12345)
+    assert result == ["2001"]
+
+
+def test_get_notification_ids_by_ref_wrong_repo(tmp_db: sqlite3.Connection) -> None:
+    """get_notification_ids_by_ref does not match notifications from a different repo."""
+    upsert_notification(
+        tmp_db,
+        NotificationRow(
+            notification_id="4001",
+            repo_owner="NixOS",
+            repo_name="nix",
+            subject_url="https://api.github.com/repos/NixOS/nix/pulls/500",
+        ).as_dict(),
+    )
+
+    result = get_notification_ids_by_ref(tmp_db, "NixOS", "nixpkgs", 500)
+    assert result == []
+
+
+def test_get_notification_ids_by_ref_no_partial_number_match(
+    tmp_db: sqlite3.Connection,
+) -> None:
+    """get_notification_ids_by_ref must not match 123 when searching for 12."""
+    upsert_notification(
+        tmp_db,
+        NotificationRow(
+            notification_id="5001",
+            repo_owner="org",
+            repo_name="repo",
+            subject_url="https://api.github.com/repos/org/repo/pulls/123",
+        ).as_dict(),
+    )
+
+    # Searching for number 12 should NOT match /123
+    result = get_notification_ids_by_ref(tmp_db, "org", "repo", 12)
+    assert result == []

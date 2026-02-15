@@ -435,6 +435,22 @@ def get_notification_ids_by_repo_title(
     return [row["notification_id"] for row in rows]
 
 
+def get_notification_ids_by_ref(
+    conn: sqlite3.Connection,
+    owner: str,
+    repo: str,
+    number: int,
+) -> list[str]:
+    """Return notification IDs matching owner/repo and issue/PR number."""
+    rows = conn.execute(
+        "SELECT notification_id FROM notifications "
+        "WHERE repo_owner = ? AND repo_name = ? "
+        "AND subject_url LIKE ?",
+        (owner, repo, f"%/{number}"),
+    ).fetchall()
+    return [row["notification_id"] for row in rows]
+
+
 def get_notification_stats(conn: sqlite3.Connection) -> NotificationStats:
     """Return aggregate notification statistics."""
     total: int = conn.execute("SELECT count(*) FROM notifications").fetchone()[0]
