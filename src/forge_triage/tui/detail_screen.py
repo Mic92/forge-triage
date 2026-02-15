@@ -113,9 +113,9 @@ class DetailScreen(Screen[None]):
 
     def on_mount(self) -> None:
         """Load initial content."""
-        self._render_content()
+        self.refresh_content()
 
-    def _render_content(self) -> None:
+    def refresh_content(self) -> None:
         """Render content into the appropriate widgets."""
         notif = get_notification(self._conn, self._notification_id)
         if notif is None:
@@ -483,8 +483,7 @@ class DetailScreen(Screen[None]):
         except NoMatches:
             pass
         else:
-            content = getattr(static, "_Static__content", "")
-            return str(content)
+            return static.content
         return ""
 
     def _focus_active_scroll(self) -> None:
@@ -520,11 +519,13 @@ class DetailScreen(Screen[None]):
 
     def action_open_palette(self) -> None:
         """Open the command palette with available review actions."""
-        actions: list[tuple[str, str]] = [
-            ("approve", "✓ Approve"),
-            ("request_changes", "✗ Request Changes"),
-            ("refresh", "↻ Refresh"),
-        ]
+        actions: list[tuple[str, str]] = [("refresh", "↻ Refresh")]
+        if self._is_pr:
+            actions = [
+                ("approve", "✓ Approve"),
+                ("request_changes", "✗ Request Changes"),
+                *actions,
+            ]
 
         def _on_palette_result(result: str | None) -> None:
             if result == "approve":

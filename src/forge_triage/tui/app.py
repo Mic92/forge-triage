@@ -225,7 +225,7 @@ class TriageApp(App[None]):
         if result.success:
             # If we're on the detail screen, re-render
             if isinstance(self.screen, DetailScreen):
-                self.screen._render_content()  # noqa: SLF001
+                self.screen.refresh_content()
             self.notify("PR details loaded")
         else:
             self.notify(f"Failed to load PR details: {result.error}", severity="error")
