@@ -6,11 +6,7 @@ import asyncio
 from typing import TYPE_CHECKING
 
 from forge_triage.db import upsert_notification
-from forge_triage.messages import (
-    FetchCommentsRequest,
-    MarkDoneRequest,
-    PreLoadCommentsRequest,
-)
+from forge_triage.messages import MarkDoneRequest, Request
 from forge_triage.tui.app import TriageApp
 from forge_triage.tui.detail_pane import DetailPane
 from forge_triage.tui.notification_list import NotificationList, _state_icon
@@ -18,8 +14,6 @@ from tests.conftest import NotificationRow
 
 if TYPE_CHECKING:
     import sqlite3
-
-type _Request = MarkDoneRequest | FetchCommentsRequest | PreLoadCommentsRequest
 
 
 def _populate_db(conn: sqlite3.Connection) -> None:
@@ -81,7 +75,7 @@ async def test_tui_empty_inbox(tmp_db: sqlite3.Connection) -> None:
 async def test_mark_done_posts_request(tmp_db: sqlite3.Connection) -> None:
     """Pressing d posts a MarkDoneRequest and removes from list."""
     _populate_db(tmp_db)
-    req_q: asyncio.Queue[_Request] = asyncio.Queue()
+    req_q: asyncio.Queue[Request] = asyncio.Queue()
     app = TriageApp(conn=tmp_db, request_queue=req_q)
 
     async with app.run_test() as pilot:

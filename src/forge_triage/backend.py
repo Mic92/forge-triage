@@ -37,8 +37,10 @@ from forge_triage.messages import (
     PostReviewCommentResult,
     PreLoadCommentsRequest,
     PreLoadComplete,
+    Request,
     ResolveThreadRequest,
     ResolveThreadResult,
+    Response,
     SubmitReviewRequest,
     SubmitReviewResult,
 )
@@ -240,25 +242,8 @@ async def _handle_resolve_thread(
 
 
 async def backend_worker(
-    request_queue: asyncio.Queue[
-        MarkDoneRequest
-        | FetchCommentsRequest
-        | PreLoadCommentsRequest
-        | FetchPRDetailRequest
-        | PostReviewCommentRequest
-        | SubmitReviewRequest
-        | ResolveThreadRequest
-    ],
-    response_queue: asyncio.Queue[
-        MarkDoneResult
-        | FetchCommentsResult
-        | PreLoadComplete
-        | ErrorResult
-        | FetchPRDetailResult
-        | PostReviewCommentResult
-        | SubmitReviewResult
-        | ResolveThreadResult
-    ],
+    request_queue: asyncio.Queue[Request],
+    response_queue: asyncio.Queue[Response],
     conn: sqlite3.Connection,
     token: str,
 ) -> None:
@@ -266,16 +251,7 @@ async def backend_worker(
     while True:
         req = await request_queue.get()
         try:
-            result: (
-                MarkDoneResult
-                | FetchCommentsResult
-                | PreLoadComplete
-                | ErrorResult
-                | FetchPRDetailResult
-                | PostReviewCommentResult
-                | SubmitReviewResult
-                | ResolveThreadResult
-            )
+            result: Response
             if isinstance(req, MarkDoneRequest):
                 result = await _handle_mark_done(req, conn, token)
             elif isinstance(req, FetchCommentsRequest):

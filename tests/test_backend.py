@@ -8,13 +8,8 @@ from typing import TYPE_CHECKING
 from forge_triage.backend import backend_worker
 from forge_triage.db import get_comments, get_notification, upsert_notification
 from forge_triage.messages import (
-    ErrorResult,
-    FetchCommentsRequest,
-    FetchCommentsResult,
     MarkDoneRequest,
     MarkDoneResult,
-    PreLoadCommentsRequest,
-    PreLoadComplete,
     Request,
     Response,
 )
@@ -37,12 +32,8 @@ async def test_mark_done_through_worker(tmp_db: sqlite3.Connection, httpx_mock: 
         headers={"X-RateLimit-Remaining": "4990"},
     )
 
-    req_q: asyncio.Queue[MarkDoneRequest | FetchCommentsRequest | PreLoadCommentsRequest] = (
-        asyncio.Queue()
-    )
-    resp_q: asyncio.Queue[MarkDoneResult | FetchCommentsResult | PreLoadComplete | ErrorResult] = (
-        asyncio.Queue()
-    )
+    req_q: asyncio.Queue[Request] = asyncio.Queue()
+    resp_q: asyncio.Queue[Response] = asyncio.Queue()
 
     task = asyncio.create_task(backend_worker(req_q, resp_q, tmp_db, "ghp_test"))
 
