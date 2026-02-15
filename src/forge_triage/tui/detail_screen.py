@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import webbrowser
 from typing import TYPE_CHECKING, ClassVar
 
@@ -11,7 +12,7 @@ from textual.binding import Binding
 from textual.containers import VerticalScroll
 from textual.css.query import NoMatches
 from textual.screen import Screen
-from textual.widgets import Footer, Header, Markdown, Static, TabbedContent, TabPane
+from textual.widgets import Footer, Header, Input, Markdown, Static, TabbedContent, TabPane
 
 from forge_triage.db import Notification, get_comments, get_notification
 from forge_triage.messages import FetchPRDetailRequest, MarkDoneRequest, SubmitReviewRequest
@@ -45,9 +46,23 @@ class DetailScreen(Screen[None]):
         Binding("question_mark", "show_help", "Help", show=True),
         Binding("o", "open_browser", "Open", show=True),
         Binding("d", "mark_done", "Done", show=True, priority=True),
-        Binding("1", "tab_1", "Description", show=False),
-        Binding("2", "tab_2", "Conversations", show=False),
-        Binding("3", "tab_3", "Files", show=False),
+        Binding("1", "tab_1", "Conversation", show=False),
+        Binding("2", "tab_2", "Files", show=False),
+        Binding("tab", "tab_next", "Next Tab", show=False),
+        Binding("shift+tab", "tab_prev", "Prev Tab", show=False),
+        Binding("h", "tab_prev", "Prev Tab", show=False),
+        Binding("l", "tab_next", "Next Tab", show=False),
+        Binding("j", "scroll_line_down", "Scroll Down", show=False),
+        Binding("k", "scroll_line_up", "Scroll Up", show=False),
+        Binding("g", "scroll_to_top", "Top", show=False),
+        Binding("G", "scroll_to_bottom", "Bottom", show=False, key_display="G"),
+        Binding("home", "scroll_to_top", "Top", show=False),
+        Binding("end", "scroll_to_bottom", "Bottom", show=False),
+        Binding("ctrl+d", "half_page_down", "Half Page Down", show=False),
+        Binding("ctrl+u", "half_page_up", "Half Page Up", show=False),
+        Binding("slash", "open_search", "Search", show=False),
+        Binding("n", "search_next", "Next Match", show=False, priority=True),
+        Binding("N", "search_prev", "Prev Match", show=False, key_display="N", priority=True),
         Binding("colon", "open_palette", "Actions", show=True),
         Binding("ctrl+p", "open_palette", "Actions", show=False),
     ]
@@ -63,6 +78,15 @@ class DetailScreen(Screen[None]):
         self._notification_id = notification_id
         self._request_queue = request_queue
         self._is_pr = False
+        self.search_matches: list[int] = []  # line positions of matches
+        self.search_index: int = 0
+
+    DEFAULT_CSS = """
+    #search-input {
+        dock: bottom;
+        display: none;
+    }
+    """
 
     def compose(self) -> ComposeResult:
         notif = get_notification(self._conn, self._notification_id)
@@ -75,17 +99,16 @@ class DetailScreen(Screen[None]):
         self._is_pr = notif.subject_type == "PullRequest"
 
         if self._is_pr:
-            with TabbedContent("Description", "Conversations", "Files Changed", id="tabs"):
-                with TabPane("Description", id="tab-description"):
-                    yield VerticalScroll(Markdown(id="description-content"))
-                with TabPane("Conversations", id="tab-conversations"):
-                    yield VerticalScroll(Markdown(id="conversations-content"))
+            with TabbedContent("Conversation", "Files Changed", id="tabs"):
+                with TabPane("Conversation", id="tab-conversation"):
+                    yield VerticalScroll(Markdown(id="conversation-content"))
                 with TabPane("Files Changed", id="tab-files"):
                     yield VerticalScroll(Static(id="files-content"))
         else:
             with VerticalScroll():
                 yield Markdown(id="detail-content")
 
+        yield Input(placeholder="Search…", id="search-input")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -99,14 +122,13 @@ class DetailScreen(Screen[None]):
             return
 
         if self._is_pr:
-            self._render_description_tab(notif)
-            self._render_conversations_tab()
+            self._render_conversation_tab(notif)
             self._render_files_tab()
         else:
             self._render_issue_view(notif)
 
-    def _render_description_tab(self, notif: Notification) -> None:
-        """Render the Description tab with PR metadata and body as Markdown."""
+    def _render_conversation_tab(self, notif: Notification) -> None:
+        """Render the combined Conversation tab: PR metadata + description + review threads."""
         parts: list[str] = []
         parts.append(f"# {notif.subject_title}")
         parts.append(
@@ -136,45 +158,43 @@ class DetailScreen(Screen[None]):
             parts.append("")
             parts.append("*PR details not loaded. Press `r` to refresh.*")
 
-        self._update_markdown("#description-content", "\n".join(parts))
+        # Review threads
+        parts.append("")
+        parts.append("---")
+        parts.append("")
 
-    def _render_conversations_tab(self) -> None:
-        """Render the Conversations tab with review threads."""
         threads = get_review_threads(self._conn, self._notification_id)
 
         if not threads:
-            self._update_markdown("#conversations-content", "*No conversations yet.*")
-            return
+            parts.append("*No conversations yet.*")
+        else:
+            thread_groups: dict[str | None, list[ReviewComment]] = {}
+            for comment in threads:
+                thread_groups.setdefault(comment.thread_id, []).append(comment)
 
-        parts: list[str] = []
-        # Group by thread_id
-        thread_groups: dict[str | None, list[ReviewComment]] = {}
-        for comment in threads:
-            thread_groups.setdefault(comment.thread_id, []).append(comment)
-
-        for comments in thread_groups.values():
-            first = comments[0]
-            resolved = " (Resolved)" if first.is_resolved else ""
-            location = f"{first.path}:{first.line}" if first.line is not None else first.path
-            parts.append(f"### `{location}`{resolved}")
-            parts.append("")
-
-            if first.diff_hunk:
-                parts.append("```diff")
-                parts.append(first.diff_hunk)
-                parts.append("```")
+            for comments in thread_groups.values():
+                first = comments[0]
+                resolved = " (Resolved)" if first.is_resolved else ""
+                location = f"{first.path}:{first.line}" if first.line is not None else first.path
+                parts.append(f"### `{location}`{resolved}")
                 parts.append("")
 
-            for c in comments:
-                parts.append(f"**{c.author}** — {c.created_at}")
-                parts.append("")
-                parts.append(c.body)
+                if first.diff_hunk:
+                    parts.append("```diff")
+                    parts.append(first.diff_hunk)
+                    parts.append("```")
+                    parts.append("")
+
+                for c in comments:
+                    parts.append(f"**{c.author}** — {c.created_at}")
+                    parts.append("")
+                    parts.append(c.body)
+                    parts.append("")
+
+                parts.append("---")
                 parts.append("")
 
-            parts.append("---")
-            parts.append("")
-
-        self._update_markdown("#conversations-content", "\n".join(parts))
+        self._update_markdown("#conversation-content", "\n".join(parts))
 
     def _render_files_tab(self) -> None:
         """Render the Files Changed tab with diff summaries."""
@@ -253,10 +273,6 @@ class DetailScreen(Screen[None]):
 
     # === Actions ===
 
-    def action_go_back(self) -> None:
-        """Return to the notification list."""
-        self.app.pop_screen()
-
     def action_refresh_detail(self) -> None:
         """Refresh PR data from the API."""
         if self._request_queue is not None:
@@ -283,17 +299,224 @@ class DetailScreen(Screen[None]):
         """Show help screen."""
         self.app.push_screen(HelpScreen(context="detail"))
 
+    _TAB_IDS: ClassVar[list[str]] = ["tab-conversation", "tab-files"]
+
     def action_tab_1(self) -> None:
-        """Switch to Description tab."""
-        self._switch_tab("tab-description")
+        """Switch to Conversation tab."""
+        self._switch_tab("tab-conversation")
 
     def action_tab_2(self) -> None:
-        """Switch to Conversations tab."""
-        self._switch_tab("tab-conversations")
-
-    def action_tab_3(self) -> None:
         """Switch to Files Changed tab."""
         self._switch_tab("tab-files")
+
+    def action_tab_next(self) -> None:
+        """Cycle to the next tab (wrapping)."""
+        try:
+            tabs = self.query_one(TabbedContent)
+            current = tabs.active
+            idx = self._TAB_IDS.index(current) if current in self._TAB_IDS else 0
+            next_idx = (idx + 1) % len(self._TAB_IDS)
+            tabs.active = self._TAB_IDS[next_idx]
+            self._clear_search()
+        except NoMatches:
+            pass
+
+    def action_tab_prev(self) -> None:
+        """Cycle to the previous tab (wrapping)."""
+        try:
+            tabs = self.query_one(TabbedContent)
+            current = tabs.active
+            idx = self._TAB_IDS.index(current) if current in self._TAB_IDS else 0
+            prev_idx = (idx - 1) % len(self._TAB_IDS)
+            tabs.active = self._TAB_IDS[prev_idx]
+            self._clear_search()
+        except NoMatches:
+            pass
+
+    def _get_active_scroll(self) -> VerticalScroll | None:
+        """Return the VerticalScroll in the active tab pane, or None."""
+        try:
+            tabs = self.query_one(TabbedContent)
+            active_pane = tabs.query_one(f"#{tabs.active}", TabPane)
+            return active_pane.query_one(VerticalScroll)
+        except NoMatches:
+            # Fall back to non-tabbed views
+            try:
+                return self.query_one(VerticalScroll)
+            except NoMatches:
+                return None
+
+    def action_scroll_line_down(self) -> None:
+        """Scroll the active tab's content down by one line."""
+        vs = self._get_active_scroll()
+        if vs is not None:
+            vs.scroll_down(animate=False)
+
+    def action_scroll_line_up(self) -> None:
+        """Scroll the active tab's content up by one line."""
+        vs = self._get_active_scroll()
+        if vs is not None:
+            vs.scroll_up(animate=False)
+
+    def action_scroll_to_top(self) -> None:
+        """Scroll the active tab's content to the top."""
+        vs = self._get_active_scroll()
+        if vs is not None:
+            vs.scroll_home(animate=False)
+
+    def action_scroll_to_bottom(self) -> None:
+        """Scroll the active tab's content to the bottom."""
+        vs = self._get_active_scroll()
+        if vs is not None:
+            vs.scroll_end(animate=False)
+
+    def action_half_page_down(self) -> None:
+        """Scroll the active tab's content down by half a page."""
+        vs = self._get_active_scroll()
+        if vs is not None:
+            offset = vs.size.height // 2
+            vs.scroll_relative(y=offset, animate=False)
+
+    def action_half_page_up(self) -> None:
+        """Scroll the active tab's content up by half a page."""
+        vs = self._get_active_scroll()
+        if vs is not None:
+            offset = vs.size.height // 2
+            vs.scroll_relative(y=-offset, animate=False)
+
+    def action_open_search(self) -> None:
+        """Show the search input and focus it."""
+        try:
+            search_input = self.query_one("#search-input", Input)
+            search_input.display = True
+            search_input.value = ""
+            search_input.focus()
+        except NoMatches:
+            pass
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Handle search submission."""
+        if event.input.id != "search-input":
+            return
+
+        query = event.value.strip()
+        event.input.display = False
+        # Defer focus to active scroll so it happens after Textual's focus cleanup
+        self.call_after_refresh(self._focus_active_scroll)
+
+        if not query:
+            return
+
+        # Get the text content from the active tab
+        content = self._get_active_content_text()
+        if not content:
+            self._clear_search()
+            return
+
+        # Find all matches (case-insensitive), storing line numbers
+        lines = content.split("\n")
+        matches: list[int] = []
+        pattern = re.compile(re.escape(query), re.IGNORECASE)
+        for i, line in enumerate(lines):
+            if pattern.search(line):
+                matches.append(i)
+
+        if not matches:
+            self.notify("No matches found")
+            self._clear_search()
+            return
+
+        self.search_matches = matches
+        self.search_index = 0
+        self._scroll_to_match()
+
+    def action_search_next(self) -> None:
+        """Scroll to the next search match (wrapping)."""
+        if not self.search_matches:
+            return
+        self.search_index = (self.search_index + 1) % len(self.search_matches)
+        self._scroll_to_match()
+
+    def action_search_prev(self) -> None:
+        """Scroll to the previous search match (wrapping)."""
+        if not self.search_matches:
+            return
+        self.search_index = (self.search_index - 1) % len(self.search_matches)
+        self._scroll_to_match()
+
+    def _scroll_to_match(self) -> None:
+        """Scroll the active VerticalScroll to bring the current match into view."""
+        if not self.search_matches:
+            return
+        vs = self._get_active_scroll()
+        if vs is None:
+            return
+        line = self.search_matches[self.search_index]
+        # Scroll to the approximate position — each line is roughly 1 unit
+        vs.scroll_to(y=line, animate=False)
+
+    def _get_active_content_text(self) -> str:
+        """Extract plain text from the active tab's content widget."""
+        try:
+            tabs = self.query_one(TabbedContent)
+        except NoMatches:
+            # Non-tabbed view
+            try:
+                md = self.query_one("#detail-content", Markdown)
+            except NoMatches:
+                return ""
+            else:
+                return md.source
+
+        active_id = tabs.active
+        pane = tabs.query_one(f"#{active_id}", TabPane)
+        # Try Markdown first
+        try:
+            md = pane.query_one(Markdown)
+        except NoMatches:
+            pass
+        else:
+            return md.source
+        # Try Static — content stored as mangled __content attribute
+        try:
+            static = pane.query_one(Static)
+        except NoMatches:
+            pass
+        else:
+            content = getattr(static, "_Static__content", "")
+            return str(content)
+        return ""
+
+    def _focus_active_scroll(self) -> None:
+        """Focus the active tab's VerticalScroll widget."""
+        vs = self._get_active_scroll()
+        if vs is not None:
+            vs.focus()
+
+    def _clear_search(self) -> None:
+        """Clear search state."""
+        self.search_matches = []
+        self.search_index = 0
+
+    def action_go_back(self) -> None:
+        """Return to the notification list, clearing search first if active."""
+        # If search input is focused, just hide it
+        try:
+            search_input = self.query_one("#search-input", Input)
+            if search_input.has_focus:
+                search_input.display = False
+                self.set_focus(None)
+                self._clear_search()
+                return
+        except NoMatches:
+            pass
+
+        # If search is active, clear it first
+        if self.search_matches:
+            self._clear_search()
+            return
+
+        self.app.pop_screen()
 
     def action_open_palette(self) -> None:
         """Open the command palette with available review actions."""
@@ -329,6 +552,7 @@ class DetailScreen(Screen[None]):
         try:
             tabs = self.query_one(TabbedContent)
             tabs.active = tab_id
+            self._clear_search()
         except NoMatches:
             pass
 

@@ -35,9 +35,25 @@ Press [bold]?[/bold] or [bold]Escape[/bold] to dismiss.
 _DETAIL_HELP = """\
 [bold]Detail View Keybindings[/bold]
 
-  [bold]1[/bold]         Description tab
-  [bold]2[/bold]         Conversations tab
-  [bold]3[/bold]         Files Changed tab
+[bold]Tabs[/bold]
+  [bold]1[/bold] / [bold]2[/bold]       Conversation / Files Changed
+  [bold]Tab[/bold]       Next tab
+  [bold]Shift+Tab[/bold] Previous tab
+  [bold]h[/bold] / [bold]l[/bold]       Previous / Next tab
+
+[bold]Scrolling[/bold]
+  [bold]j[/bold] / [bold]k[/bold]       Scroll down / up
+  [bold]g[/bold] / [bold]G[/bold]       Jump to top / bottom
+  [bold]Home[/bold] / [bold]End[/bold]  Jump to top / bottom
+  [bold]Ctrl+d[/bold]    Half page down
+  [bold]Ctrl+u[/bold]    Half page up
+
+[bold]Search[/bold]
+  [bold]/[/bold]         Search in tab
+  [bold]n[/bold] / [bold]N[/bold]       Next / Previous match
+  [bold]Escape[/bold]    Clear search
+
+[bold]Actions[/bold]
   [bold]d[/bold]         Mark done & go back
   [bold]o[/bold]         Open in browser
   [bold]r[/bold]         Refresh PR data
