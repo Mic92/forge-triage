@@ -33,6 +33,8 @@
 
             build-system = [ python.pkgs.hatchling ];
 
+            nativeBuildInputs = [ pkgs.makeWrapper ];
+
             dependencies = with python.pkgs; [
               textual
               httpx
@@ -44,6 +46,11 @@
               pytest-httpx
               pytest-xdist
             ];
+
+            postFixup = ''
+              wrapProgram $out/bin/forge-triage \
+                --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.gh ]}
+            '';
 
             meta = {
               description = "Fast TUI for triaging GitHub notifications";
