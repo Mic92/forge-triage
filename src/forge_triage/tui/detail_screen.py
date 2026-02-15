@@ -11,14 +11,13 @@ from textual.binding import Binding
 from textual.containers import VerticalScroll
 from textual.css.query import NoMatches
 from textual.screen import Screen
-from textual.widgets import Footer, Header, Static, TabbedContent, TabPane
+from textual.widgets import Footer, Header, Markdown, Static, TabbedContent, TabPane
 
 from forge_triage.db import Notification, get_comments, get_notification
 from forge_triage.messages import FetchPRDetailRequest, MarkDoneRequest, SubmitReviewRequest
 from forge_triage.pr_db import ReviewComment, get_pr_details, get_pr_files, get_review_threads
 from forge_triage.tui.help_screen import HelpScreen
 from forge_triage.tui.widgets.command_palette import CommandPalette
-from forge_triage.tui.widgets.markdown_light import render_markdown
 
 if TYPE_CHECKING:
     import asyncio
@@ -78,14 +77,14 @@ class DetailScreen(Screen[None]):
         if self._is_pr:
             with TabbedContent("Description", "Conversations", "Files Changed", id="tabs"):
                 with TabPane("Description", id="tab-description"):
-                    yield VerticalScroll(Static(id="description-content"))
+                    yield VerticalScroll(Markdown(id="description-content"))
                 with TabPane("Conversations", id="tab-conversations"):
-                    yield VerticalScroll(Static(id="conversations-content"))
+                    yield VerticalScroll(Markdown(id="conversations-content"))
                 with TabPane("Files Changed", id="tab-files"):
                     yield VerticalScroll(Static(id="files-content"))
         else:
             with VerticalScroll():
-                yield Static(id="detail-content")
+                yield Markdown(id="detail-content")
 
         yield Footer()
 
@@ -107,43 +106,44 @@ class DetailScreen(Screen[None]):
             self._render_issue_view(notif)
 
     def _render_description_tab(self, notif: Notification) -> None:
-        """Render the Description tab with PR metadata."""
+        """Render the Description tab with PR metadata and body as Markdown."""
         parts: list[str] = []
-        parts.append(f"[bold]{notif.subject_title}[/bold]")
+        parts.append(f"# {notif.subject_title}")
         parts.append(
             f"{notif.repo_owner}/{notif.repo_name}  •  {notif.subject_type}  •  {notif.reason}"
         )
 
         pr_details = get_pr_details(self._conn, self._notification_id)
         if pr_details is not None:
-            parts.append(f"Author: [bold]{pr_details.author}[/bold]")
-            parts.append(f"Branch: {pr_details.head_ref} → {pr_details.base_ref}")
+            parts.append(f"**Author:** {pr_details.author}")
+            parts.append(f"**Branch:** {pr_details.head_ref} → {pr_details.base_ref}")
 
             try:
                 labels: list[str] = json.loads(pr_details.labels_json)
             except (json.JSONDecodeError, TypeError):
                 labels = []
             if labels:
-                label_tags = " ".join(f"[reverse] {lbl} [/reverse]" for lbl in labels)
-                parts.append(label_tags)
+                parts.append("**Labels:** " + ", ".join(f"`{lbl}`" for lbl in labels))
 
+            parts.append("")
+            parts.append("---")
             parts.append("")
             if pr_details.body:
-                parts.append(render_markdown(pr_details.body))
+                parts.append(pr_details.body)
             else:
-                parts.append("[dim]No description provided.[/dim]")
+                parts.append("*No description provided.*")
         else:
             parts.append("")
-            parts.append("[dim]PR details not loaded. Press [bold]r[/bold] to refresh.[/dim]")
+            parts.append("*PR details not loaded. Press `r` to refresh.*")
 
-        self._update_widget("#description-content", "\n".join(parts))
+        self._update_markdown("#description-content", "\n".join(parts))
 
     def _render_conversations_tab(self) -> None:
         """Render the Conversations tab with review threads."""
         threads = get_review_threads(self._conn, self._notification_id)
 
         if not threads:
-            self._update_widget("#conversations-content", "[dim]No conversations yet.[/dim]")
+            self._update_markdown("#conversations-content", "*No conversations yet.*")
             return
 
         parts: list[str] = []
@@ -154,25 +154,27 @@ class DetailScreen(Screen[None]):
 
         for comments in thread_groups.values():
             first = comments[0]
-            if first.is_resolved:
-                parts.append(f"[dim]── {first.path}:{first.line} (Resolved) ──[/dim]")
-            else:
-                parts.append(f"[bold]── {first.path}:{first.line} ──[/bold]")
-
-            for c in comments:
-                parts.append(f"  [bold]{c.author}[/bold] — {c.created_at}")
-                parts.append(f"  {render_markdown(c.body)}")
-                parts.append("")
+            resolved = " (Resolved)" if first.is_resolved else ""
+            parts.append(f"### `{first.path}:{first.line}`{resolved}")
             parts.append("")
 
-        self._update_widget("#conversations-content", "\n".join(parts))
+            for c in comments:
+                parts.append(f"**{c.author}** — {c.created_at}")
+                parts.append("")
+                parts.append(c.body)
+                parts.append("")
+
+            parts.append("---")
+            parts.append("")
+
+        self._update_markdown("#conversations-content", "\n".join(parts))
 
     def _render_files_tab(self) -> None:
         """Render the Files Changed tab with diff summaries."""
         files = get_pr_files(self._conn, self._notification_id)
 
         if not files:
-            self._update_widget(
+            self._update_static(
                 "#files-content",
                 "[dim]No files changed data loaded. Press [bold]r[/bold] to refresh.[/dim]",
             )
@@ -185,7 +187,7 @@ class DetailScreen(Screen[None]):
             )
             parts.append(
                 f"[{status_style}]{f.status}[/{status_style}]  "
-                f"[bold]{f.filename}[/bold]  "
+                f"[bold]{_escape(f.filename)}[/bold]  "
                 f"[green]+{f.additions}[/green] [red]-{f.deletions}[/red]"
             )
             if f.patch:
@@ -201,12 +203,12 @@ class DetailScreen(Screen[None]):
                 parts.append("  [dim]Binary file — no diff available[/dim]")
             parts.append("")
 
-        self._update_widget("#files-content", "\n".join(parts))
+        self._update_static("#files-content", "\n".join(parts))
 
     def _render_issue_view(self, notif: Notification) -> None:
         """Render a simple issue/other notification view."""
         parts: list[str] = []
-        parts.append(f"[bold]{notif.subject_title}[/bold]")
+        parts.append(f"# {notif.subject_title}")
         parts.append(
             f"{notif.repo_owner}/{notif.repo_name}  •  {notif.subject_type}  •  {notif.reason}"
         )
@@ -214,18 +216,27 @@ class DetailScreen(Screen[None]):
 
         comments = get_comments(self._conn, self._notification_id)
         if comments:
-            parts.append(f"[bold]Comments ({len(comments)}):[/bold]")
+            parts.append(f"## Comments ({len(comments)})")
             parts.append("")
             for c in comments:
-                parts.append(f"[bold]{c.author}[/bold] — {c.created_at}")
-                parts.append(render_markdown(c.body))
+                parts.append(f"**{c.author}** — {c.created_at}")
+                parts.append("")
+                parts.append(c.body)
                 parts.append("")
         else:
-            parts.append("[dim]No comments.[/dim]")
+            parts.append("*No comments.*")
 
-        self._update_widget("#detail-content", "\n".join(parts))
+        self._update_markdown("#detail-content", "\n".join(parts))
 
-    def _update_widget(self, widget_id: str, content: str) -> None:
+    def _update_markdown(self, widget_id: str, content: str) -> None:
+        """Safely update a Markdown widget's content."""
+        try:
+            widget = self.query_one(widget_id, Markdown)
+            widget.update(content)
+        except NoMatches:
+            logger.debug("Widget %s not found", widget_id)
+
+    def _update_static(self, widget_id: str, content: str) -> None:
         """Safely update a Static widget's content."""
         try:
             widget = self.query_one(widget_id, Static)

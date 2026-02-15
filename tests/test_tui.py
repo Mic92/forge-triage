@@ -12,6 +12,7 @@ from forge_triage.messages import (
     PreLoadCommentsRequest,
 )
 from forge_triage.tui.app import TriageApp
+from forge_triage.tui.detail_pane import DetailPane
 from forge_triage.tui.notification_list import NotificationList, _state_icon
 from tests.conftest import NotificationRow
 
@@ -135,25 +136,19 @@ async def test_detail_pane_updates_on_cursor_move(tmp_db: sqlite3.Connection) ->
     app = TriageApp(conn=tmp_db)
 
     async with app.run_test() as pilot:
-        detail = app.query_one("#detail-pane")
-        rendered = detail.render()
-        assert hasattr(rendered, "plain")
+        detail = app.query_one(DetailPane)
         # Initially shows first notification
-        assert "Fix critical bug" in rendered.plain
+        assert "Fix critical bug" in detail.source
 
         # Move down to second notification
         await pilot.press("j")
         await pilot.pause()
-        rendered = detail.render()
-        assert hasattr(rendered, "plain")
-        assert "Add new feature" in rendered.plain
+        assert "Add new feature" in detail.source
 
         # Move down again to third notification
         await pilot.press("j")
         await pilot.pause()
-        rendered = detail.render()
-        assert hasattr(rendered, "plain")
-        assert "Update docs" in rendered.plain
+        assert "Update docs" in detail.source
 
 
 async def test_refresh_reloads_from_db(tmp_db: sqlite3.Connection) -> None:
