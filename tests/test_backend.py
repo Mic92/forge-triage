@@ -37,12 +37,12 @@ async def test_mark_done_through_worker(tmp_db: sqlite3.Connection, httpx_mock: 
 
     task = asyncio.create_task(backend_worker(req_q, resp_q, tmp_db, "ghp_test"))
 
-    await req_q.put(MarkDoneRequest(notification_ids=["1001"]))
+    await req_q.put(MarkDoneRequest(notification_ids=("1001",)))
     result = await asyncio.wait_for(resp_q.get(), timeout=5)
 
     assert isinstance(result, MarkDoneResult)
-    assert result.notification_ids == ["1001"]
-    assert result.errors == []
+    assert result.notification_ids == ("1001",)
+    assert result.errors == ()
 
     # Verify notification deleted from DB
     assert get_notification(tmp_db, "1001") is None

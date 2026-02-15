@@ -239,7 +239,7 @@ class TriageApp(App[None]):
         if nid is None:
             return
         nlist.remove_notification(nid)
-        self._request_queue.put_nowait(MarkDoneRequest(notification_ids=[nid]))
+        self._request_queue.put_nowait(MarkDoneRequest(notification_ids=(nid,)))
 
     def action_bulk_done(self) -> None:
         """Mark all selected notifications as done."""
@@ -248,7 +248,7 @@ class TriageApp(App[None]):
         nlist = self._get_notification_list()
         if nlist is None:
             return
-        ids = list(self._selected)
+        ids = tuple(self._selected)
         for nid in ids:
             nlist.remove_notification(nid)
         self._selected.clear()

@@ -75,7 +75,7 @@ async def _handle_mark_done(
             done_ids.append(nid)
         except Exception as e:  # noqa: BLE001
             errors.append(f"{nid}: {e}")
-    return MarkDoneResult(notification_ids=done_ids, errors=errors)
+    return MarkDoneResult(notification_ids=tuple(done_ids), errors=tuple(errors))
 
 
 async def _handle_fetch_comments(
@@ -136,7 +136,7 @@ async def _handle_preload(
                 loaded.append(nid)
 
     await asyncio.gather(*[_load(nid) for nid in nids])
-    return PreLoadComplete(loaded_ids=loaded)
+    return PreLoadComplete(loaded_ids=tuple(loaded))
 
 
 def _get_pr_ref(conn: sqlite3.Connection, notification_id: str) -> PRRef | None:

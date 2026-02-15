@@ -91,7 +91,7 @@ async def test_mark_done_posts_request(tmp_db: sqlite3.Connection) -> None:
         assert nlist.row_count == 2
         req = req_q.get_nowait()
         assert isinstance(req, MarkDoneRequest)
-        assert req.notification_ids == ["1001"]
+        assert req.notification_ids == ("1001",)
 
 
 async def test_vim_jk_navigation(tmp_db: sqlite3.Connection) -> None:

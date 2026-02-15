@@ -291,7 +291,7 @@ class DetailScreen(Screen[None]):
         """Mark this notification as done and go back."""
         if self._request_queue is not None:
             self._request_queue.put_nowait(
-                MarkDoneRequest(notification_ids=[self._notification_id])
+                MarkDoneRequest(notification_ids=(self._notification_id,))
             )
         self.app.pop_screen()
 

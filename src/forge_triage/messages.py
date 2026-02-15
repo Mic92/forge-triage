@@ -2,40 +2,40 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 # === Requests (TUI → Backend) ===
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class MarkDoneRequest:
     """Ask the backend to mark notifications as read on GitHub and delete locally."""
 
-    notification_ids: list[str] = field(default_factory=list)
+    notification_ids: tuple[str, ...] = ()
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class FetchCommentsRequest:
     """Ask the backend to fetch comments for a single notification."""
 
     notification_id: str
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class PreLoadCommentsRequest:
     """Ask the backend to pre-load comments for top N notifications."""
 
     top_n: int = 20
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class FetchPRDetailRequest:
     """Ask the backend to fetch full PR data (metadata, reviews, files)."""
 
     notification_id: str
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class PostReviewCommentRequest:
     """Ask the backend to post a reply to a review thread."""
 
@@ -44,7 +44,7 @@ class PostReviewCommentRequest:
     body: str
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class SubmitReviewRequest:
     """Ask the backend to submit a PR review (approve/request changes)."""
 
@@ -53,7 +53,7 @@ class SubmitReviewRequest:
     body: str = ""
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ResolveThreadRequest:
     """Ask the backend to resolve or unresolve a review thread."""
 
@@ -76,15 +76,15 @@ type Request = (
 # === Responses (Backend → TUI) ===
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class MarkDoneResult:
     """Report which notifications were marked done (or errors)."""
 
-    notification_ids: list[str] = field(default_factory=list)
-    errors: list[str] = field(default_factory=list)
+    notification_ids: tuple[str, ...] = ()
+    errors: tuple[str, ...] = ()
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class FetchCommentsResult:
     """Report fetched comments for a notification."""
 
@@ -92,14 +92,14 @@ class FetchCommentsResult:
     comment_count: int
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class PreLoadComplete:
     """Report which notifications had comments pre-loaded."""
 
-    loaded_ids: list[str] = field(default_factory=list)
+    loaded_ids: tuple[str, ...] = ()
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ErrorResult:
     """Report an error processing a request."""
 
@@ -107,7 +107,7 @@ class ErrorResult:
     error: str
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class FetchPRDetailResult:
     """Report that PR detail data was fetched (or failed)."""
 
@@ -116,7 +116,7 @@ class FetchPRDetailResult:
     error: str = ""
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class PostReviewCommentResult:
     """Report that a review reply was posted (or failed)."""
 
@@ -125,7 +125,7 @@ class PostReviewCommentResult:
     error: str = ""
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class SubmitReviewResult:
     """Report that a review was submitted (or failed)."""
 
@@ -134,7 +134,7 @@ class SubmitReviewResult:
     error: str = ""
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ResolveThreadResult:
     """Report that a thread was resolved/unresolved (or failed)."""
 
