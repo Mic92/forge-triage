@@ -4,12 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    import sqlite3
-    from collections.abc import Callable
 
 from forge_triage.db import (
     get_notification,
@@ -30,9 +27,18 @@ from forge_triage.github import (
 )
 from forge_triage.priority import compute_priority
 
+if TYPE_CHECKING:
+    import sqlite3
+    from collections.abc import Callable
+
+logger = logging.getLogger(__name__)
+
 DEFAULT_MAX_NOTIFICATIONS = 1000
 COMMENT_PRELOAD_COUNT = 20
 COMMENT_CONCURRENCY = 5
+# Below this threshold an empty API response purges all local notifications.
+# Above it we assume the empty response is a transient API issue.
+PURGE_ALL_THRESHOLD = 5
 
 
 @dataclass
@@ -61,7 +67,6 @@ def _notification_to_row(
         html_url: str | None = (
             subject_url.replace("api.github.com/repos", "github.com")
             .replace("/pulls/", "/pull/")
-            .replace("/issues/", "/issues/")
         )
     else:
         html_url = None
@@ -112,24 +117,27 @@ async def _preload_comments_for_top_n(
 
     async def _load_one(notification_id: str, raw_json: str) -> None:
         async with sem:
-            notif = json.loads(raw_json)
-            url = _comments_url_from_notification(notif)
-            if url is None:
-                return
-            comments = await fetch_comments(token, url)
-            db_comments = [
-                {
-                    "comment_id": str(c["id"]),
-                    "notification_id": notification_id,
-                    "author": c["user"]["login"] if c.get("user") else "[deleted]",
-                    "body": c["body"],
-                    "created_at": c["created_at"],
-                    "updated_at": c["updated_at"],
-                }
-                for c in comments
-            ]
-            upsert_comments(conn, db_comments)
-            mark_comments_loaded(conn, notification_id)
+            try:
+                notif = json.loads(raw_json)
+                url = _comments_url_from_notification(notif)
+                if url is None:
+                    return
+                comments = await fetch_comments(token, url)
+                db_comments = [
+                    {
+                        "comment_id": str(c["id"]),
+                        "notification_id": notification_id,
+                        "author": c["user"]["login"] if c.get("user") else "[deleted]",
+                        "body": c["body"],
+                        "created_at": c["created_at"],
+                        "updated_at": c["updated_at"],
+                    }
+                    for c in comments
+                ]
+                upsert_comments(conn, db_comments)
+                mark_comments_loaded(conn, notification_id)
+            except Exception:  # noqa: BLE001
+                logger.warning("Failed to preload comments for %s", notification_id, exc_info=True)
 
     tasks = [_load_one(r.notification_id, r.raw_json) for r in rows if not r.comments_loaded]
     if tasks:
@@ -148,11 +156,18 @@ def _purge_stale(
     time window the API covered and were not returned, meaning they're gone).
     """
     if not fetched_notifications:
-        # Empty response → inbox is empty on GitHub
         count = get_notification_count(conn)
         if count > 0:
-            purge_all_notifications(conn)
-        return count
+            if count <= PURGE_ALL_THRESHOLD:
+                purge_all_notifications(conn)
+                return count
+            logger.warning(
+                "API returned empty notification list but %d exist locally. "
+                "Skipping purge (possible API issue). Run 'sync --force' to purge.",
+                count,
+            )
+            return 0
+        return 0
 
     fetched_ids = {n["id"] for n in fetched_notifications}
     oldest = min(n["updated_at"] for n in fetched_notifications)
@@ -175,7 +190,11 @@ async def sync(
     raw_notifications = raw_notifications[:max_notifications]
 
     # Batch-fetch subject details (state + CI) via GraphQL
-    subject_details = await fetch_subject_details(token, raw_notifications)
+    try:
+        subject_details = await fetch_subject_details(token, raw_notifications)
+    except Exception:  # noqa: BLE001
+        logger.warning("Failed to fetch subject details, continuing without", exc_info=True)
+        subject_details = {}
 
     new_count = 0
     updated_count = 0
@@ -186,7 +205,6 @@ async def sync(
 
         subject_state, ci_status = subject_details.get(notification_id, (None, None))
 
-        # Compute priority (is_own_pr requires knowing the user — simplified for now)
         score, tier = compute_priority(notif["reason"], ci_status, is_own_pr=False)
 
         row = _notification_to_row(notif, ci_status, subject_state, score, tier)
