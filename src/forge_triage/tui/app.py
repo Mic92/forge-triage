@@ -35,9 +35,6 @@ if TYPE_CHECKING:
 
     from textual.binding import BindingType
 
-type _Request = Request
-type _Response = Response
-
 POLL_INTERVAL = 0.1
 
 
@@ -85,16 +82,16 @@ class TriageApp(App[None]):
     def __init__(
         self,
         conn: sqlite3.Connection | None = None,
-        request_queue: asyncio.Queue[_Request] | None = None,
-        response_queue: asyncio.Queue[_Response] | None = None,
+        request_queue: asyncio.Queue[Request] | None = None,
+        response_queue: asyncio.Queue[Response] | None = None,
     ) -> None:
         super().__init__()
         self._conn = conn if conn is not None else open_db()
         self._owns_conn = conn is None
-        self._request_queue: asyncio.Queue[_Request] = (
+        self._request_queue: asyncio.Queue[Request] = (
             request_queue if request_queue is not None else asyncio.Queue()
         )
-        self._response_queue: asyncio.Queue[_Response] = (
+        self._response_queue: asyncio.Queue[Response] = (
             response_queue if response_queue is not None else asyncio.Queue()
         )
         self._selected: set[str] = set()
@@ -173,7 +170,7 @@ class TriageApp(App[None]):
                 break
             self._handle_response(resp)
 
-    def _handle_response(self, resp: _Response) -> None:
+    def _handle_response(self, resp: Response) -> None:
         """Dispatch a response message to the appropriate handler."""
         if isinstance(resp, MarkDoneResult):
             self._on_mark_done_result(resp)
@@ -319,7 +316,7 @@ class TriageApp(App[None]):
         nlist = self._get_notification_list()
         if nlist is None:
             return
-        self._selected = set(nlist._notification_ids)  # noqa: SLF001
+        self._selected = set(nlist.visible_notification_ids)
 
     def action_open_detail(self) -> None:
         """Open the full-screen detail view for the selected notification."""
