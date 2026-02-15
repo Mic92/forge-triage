@@ -161,7 +161,11 @@ async def fetch_pr_metadata(
             },
         )
         response.raise_for_status()
-        return parse_pr_metadata_response(response.json())
+        body = response.json()
+        errors = body.get("errors")
+        if errors:
+            logger.warning("GraphQL errors: %s", errors)
+        return parse_pr_metadata_response(body)
 
 
 async def fetch_review_threads(
@@ -194,7 +198,12 @@ async def fetch_review_threads(
             )
             response.raise_for_status()
 
-            comments, reviews, has_next, cursor = parse_review_threads_response(response.json())
+            body = response.json()
+            errors = body.get("errors")
+            if errors:
+                logger.warning("GraphQL errors: %s", errors)
+
+            comments, reviews, has_next, cursor = parse_review_threads_response(body)
             all_comments.extend(comments)
             # Only collect reviews from the first page (they're not paginated by thread cursor)
             if not all_reviews:
@@ -294,6 +303,11 @@ async def resolve_review_thread(token: str, thread_node_id: str) -> bool:
             json={"query": mutation, "variables": {"threadId": thread_node_id}},
         )
         response.raise_for_status()
+        body = response.json()
+        errors = body.get("errors")
+        if errors:
+            logger.warning("GraphQL errors: %s", errors)
+            return False
         return True
 
 
@@ -312,4 +326,9 @@ async def unresolve_review_thread(token: str, thread_node_id: str) -> bool:
             json={"query": mutation, "variables": {"threadId": thread_node_id}},
         )
         response.raise_for_status()
+        body = response.json()
+        errors = body.get("errors")
+        if errors:
+            logger.warning("GraphQL errors: %s", errors)
+            return False
         return True

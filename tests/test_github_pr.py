@@ -9,6 +9,7 @@ from forge_triage.github_pr import (
     fetch_review_threads,
     parse_pr_metadata_response,
     parse_review_threads_response,
+    resolve_review_thread,
 )
 
 if TYPE_CHECKING:
@@ -334,3 +335,22 @@ async def test_fetch_review_threads_pagination(httpx_mock: HTTPXMock) -> None:
     assert threads[0]["comment_id"] == "c1"
     assert threads[1]["comment_id"] == "c2"
     assert threads[1]["is_resolved"] == 1
+
+
+# --- Mutation error handling tests ---
+
+
+async def test_resolve_thread_returns_false_on_graphql_errors(httpx_mock: HTTPXMock) -> None:
+    """resolve_review_thread returns False when GraphQL response contains errors."""
+    httpx_mock.add_response(
+        url="https://api.github.com/graphql",
+        json={
+            "data": None,
+            "errors": [{"message": "Could not resolve to a node with ID 'bad-id'"}],
+        },
+    )
+    result = await resolve_review_thread("ghp_test", "bad-id")
+    assert result is False
+
+
+

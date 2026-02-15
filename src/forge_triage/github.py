@@ -328,6 +328,10 @@ async def fetch_subject_details(
             response.raise_for_status()
             body = response.json()
 
+            errors = body.get("errors")
+            if errors:
+                logger.warning("GraphQL errors: %s", errors)
+
             data = body.get("data")
             if data is not None:
                 results.update(_parse_graphql_response(data, alias_map))
