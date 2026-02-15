@@ -266,6 +266,7 @@ class TriageApp(App[None]):
         if nid is None:
             return
         nlist.remove_notification(nid)
+        self._selected.discard(nid)
         self._request_queue.put_nowait(MarkDoneRequest(notification_ids=(nid,)))
 
     def action_bulk_done(self) -> None:
@@ -301,6 +302,8 @@ class TriageApp(App[None]):
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """Apply the text filter."""
+        if event.input.id != "filter-input":
+            return
         self._filter_text = event.value
         filter_input = self.query_one("#filter-input", Input)
         filter_input.styles.display = "none"
@@ -311,6 +314,7 @@ class TriageApp(App[None]):
 
     def action_refresh(self) -> None:
         """Reload notification list from the database."""
+        self._selected.clear()
         nlist = self._get_notification_list()
         if nlist is not None:
             nlist.refresh_data(filter_text=self._filter_text)
@@ -319,6 +323,9 @@ class TriageApp(App[None]):
 
     def action_clear_filter(self) -> None:
         """Clear all filters."""
+        if not self._filter_text:
+            return
+        self._selected.clear()
         self._filter_text = ""
         filter_input = self.query_one("#filter-input", Input)
         filter_input.styles.display = "none"
