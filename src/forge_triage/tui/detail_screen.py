@@ -159,6 +159,12 @@ class DetailScreen(Screen[None]):
             parts.append(f"### `{location}`{resolved}")
             parts.append("")
 
+            if first.diff_hunk:
+                parts.append("```diff")
+                parts.append(first.diff_hunk)
+                parts.append("```")
+                parts.append("")
+
             for c in comments:
                 parts.append(f"**{c.author}** — {c.created_at}")
                 parts.append("")

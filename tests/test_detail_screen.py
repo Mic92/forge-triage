@@ -142,8 +142,9 @@ async def test_detail_screen_shows_issue_without_tabs(tmp_db: sqlite3.Connection
         assert not has_tabs
 
 
-async def test_conversation_tab_null_line(tmp_db: sqlite3.Connection) -> None:
-    """Review comments with line=None must not show 'None' in the header."""
+async def test_conversation_tab_shows_diff_hunk(tmp_db: sqlite3.Connection) -> None:
+    """Conversations tab shows the diff hunk as code context and omits null line numbers."""
+    diff_hunk = "@@ -10,6 +10,8 @@\n checklist['eligible'] = true"
     upsert_notification(tmp_db, NotificationRow().as_dict())
     upsert_pr_details(
         tmp_db,
@@ -181,7 +182,7 @@ async def test_conversation_tab_null_line(tmp_db: sqlite3.Connection) -> None:
                 "author": "reviewer",
                 "body": "file-level comment",
                 "path": "ci/merge.js",
-                "diff_hunk": "@@",
+                "diff_hunk": diff_hunk,
                 "line": None,
                 "side": "RIGHT",
                 "in_reply_to_id": None,
@@ -207,3 +208,5 @@ async def test_conversation_tab_null_line(tmp_db: sqlite3.Connection) -> None:
         conversations = screen.query_one("#conversations-content", Markdown)
         assert "None" not in conversations.source
         assert "ci/merge.js" in conversations.source
+        # Diff hunk should be rendered as a code block
+        assert "checklist['eligible'] = true" in conversations.source
