@@ -80,6 +80,11 @@ class NotificationStats:
     by_reason: list[CountStat]
 
 
+def _escape_like(text: str) -> str:
+    """Escape LIKE special characters so they match literally."""
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def _row_to_notification(row: sqlite3.Row) -> Notification:
     """Convert a sqlite3.Row to a Notification dataclass."""
     return Notification(
@@ -211,6 +216,8 @@ def init_db(path: Path) -> sqlite3.Connection:
     are applied sequentially.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
+    # DB may contain auth-adjacent data (tokens in raw_json); restrict access
+    path.parent.chmod(0o700)
     conn = sqlite3.connect(str(path))
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
@@ -344,8 +351,12 @@ def list_notifications(
     params: list[str] = []
 
     if filter_text:
-        query += " AND (subject_title LIKE ? OR repo_owner || '/' || repo_name LIKE ?)"
-        like = f"%{filter_text}%"
+        query += (
+            " AND (subject_title LIKE ? ESCAPE '\\'"
+            " OR repo_owner || '/' || repo_name LIKE ? ESCAPE '\\')"
+        )
+        escaped = _escape_like(filter_text)
+        like = f"%{escaped}%"
         params.extend([like, like])
 
     if filter_reason:
@@ -425,11 +436,15 @@ def get_notification_ids_by_repo_title(
     repo: str,
     title_pattern: str,
 ) -> list[str]:
-    """Return notification IDs matching a repo and title pattern."""
+    """Return notification IDs matching a repo and title pattern.
+
+    The title_pattern is used as a raw LIKE pattern (caller provides wildcards).
+    Special characters are NOT escaped here to preserve caller intent.
+    """
     rows = conn.execute(
         "SELECT notification_id FROM notifications "
         "WHERE repo_owner || '/' || repo_name = ? "
-        "AND subject_title LIKE ?",
+        "AND subject_title LIKE ? ESCAPE '\\'",
         (repo, title_pattern),
     ).fetchall()
     return [row["notification_id"] for row in rows]

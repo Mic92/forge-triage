@@ -12,6 +12,7 @@ from forge_triage.db import (
     get_notification_ids_by_ref,
     get_sync_meta,
     init_db,
+    list_notifications,
     upsert_comments,
     upsert_notification,
 )
@@ -257,3 +258,29 @@ def test_get_notification_ids_by_ref_no_partial_number_match(
     # Searching for number 12 should NOT match /123
     result = get_notification_ids_by_ref(tmp_db, "org", "repo", 12)
     assert result == []
+
+
+# ---------- LIKE escaping tests ----------
+
+
+def test_list_notifications_escapes_percent_in_filter(tmp_db: sqlite3.Connection) -> None:
+    """A literal '%' in filter_text must not act as a wildcard."""
+    upsert_notification(
+        tmp_db,
+        NotificationRow(
+            notification_id="a1",
+            subject_title="Bump foo 50% done",
+        ).as_dict(),
+    )
+    upsert_notification(
+        tmp_db,
+        NotificationRow(
+            notification_id="a2",
+            subject_title="Bump foo 50 done",
+        ).as_dict(),
+    )
+
+    # Searching for literal "50%" should match only the first row
+    results = list_notifications(tmp_db, filter_text="50%")
+    assert len(results) == 1
+    assert results[0].notification_id == "a1"
