@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING
 from forge_triage.backend import backend_worker
 from forge_triage.db import get_comments, get_notification, upsert_notification
 from forge_triage.messages import (
+    FetchCommentsRequest,
+    FetchCommentsResult,
     MarkDoneRequest,
     MarkDoneResult,
     Request,
