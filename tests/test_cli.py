@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from forge_triage.cli import _parse_ref
 from forge_triage.db import (
     SqlWriteBlockedError,
     execute_sql,
@@ -16,6 +17,30 @@ if TYPE_CHECKING:
     import sqlite3
 
 import pytest
+
+
+def test_parse_ref_valid() -> None:
+    """_parse_ref returns (owner, repo, number) for valid refs."""
+    assert _parse_ref("NixOS/nixpkgs#12345") == ("NixOS", "nixpkgs", 12345)
+    assert _parse_ref("org/my-repo#1") == ("org", "my-repo", 1)
+
+
+def test_parse_ref_missing_hash() -> None:
+    """_parse_ref exits on ref without #."""
+    with pytest.raises(SystemExit):
+        _parse_ref("NixOS/nixpkgs")
+
+
+def test_parse_ref_missing_owner() -> None:
+    """_parse_ref exits on ref without owner/ prefix."""
+    with pytest.raises(SystemExit):
+        _parse_ref("nixpkgs#123")
+
+
+def test_parse_ref_non_numeric_number() -> None:
+    """_parse_ref exits when number part is not a digit."""
+    with pytest.raises(SystemExit):
+        _parse_ref("NixOS/nixpkgs#abc")
 
 
 def test_execute_sql_blocks_write_by_default(tmp_db: sqlite3.Connection) -> None:

@@ -13,12 +13,12 @@ from forge_triage.db import (
     delete_notification,
     execute_sql,
     get_notification_ids_by_reason,
-    get_notification_ids_by_repo_title,
+    get_notification_ids_by_ref,
     get_notification_stats,
     list_notifications,
     open_db,
 )
-from forge_triage.github import get_github_token, mark_as_read
+from forge_triage.github import AuthError, get_github_token, mark_as_read
 from forge_triage.sync import DEFAULT_MAX_NOTIFICATIONS, sync
 
 COL_TITLE_MAX = 48
@@ -37,7 +37,12 @@ def _print_progress(current: int, total: int) -> None:
 
 def _cmd_sync(args: argparse.Namespace) -> None:
     """Run sync: fetch notifications from GitHub."""
-    token = get_github_token()
+    try:
+        token = get_github_token()
+    except AuthError as e:
+        print(f"Authentication error: {e}", file=sys.stderr)
+        print("Run 'gh auth login' to authenticate.", file=sys.stderr)
+        sys.exit(1)
     conn = open_db()
     max_n: int = args.max
     try:
@@ -147,22 +152,45 @@ def _cmd_sql(args: argparse.Namespace) -> None:
         conn.close()
 
 
+async def _dismiss_batch(token: str, nids: list[str]) -> list[str]:
+    """Mark notifications as read on GitHub. Returns error descriptions for failures."""
+    errors = []
+    for nid in nids:
+        try:
+            await mark_as_read(token, nid)
+        except Exception as e:  # noqa: BLE001
+            errors.append(f"{nid}: {e}")
+    return errors
+
+
+def _parse_ref(ref: str) -> tuple[str, str, int]:
+    """Parse an owner/repo#number ref. Exits with error on invalid format."""
+    if "#" not in ref:
+        print(f"Invalid ref format: {ref}. Expected owner/repo#number", file=sys.stderr)
+        sys.exit(1)
+    repo_part, number_str = ref.rsplit("#", 1)
+    if "/" not in repo_part or not number_str.isdigit():
+        print(f"Invalid ref: {ref}. Expected owner/repo#number", file=sys.stderr)
+        sys.exit(1)
+    owner, repo = repo_part.split("/", 1)
+    return owner, repo, int(number_str)
+
+
 def _cmd_done(args: argparse.Namespace) -> None:
     """Mark notifications as done."""
-    token = get_github_token()
+    try:
+        token = get_github_token()
+    except AuthError as e:
+        print(f"Authentication error: {e}", file=sys.stderr)
+        print("Run 'gh auth login' to authenticate.", file=sys.stderr)
+        sys.exit(1)
     conn = open_db()
     try:
         if args.reason:
             nids = get_notification_ids_by_reason(conn, args.reason)
         elif args.ref:
-            # Parse owner/repo#number format
-            ref: str = args.ref
-            if "#" in ref:
-                repo_part, _number = ref.rsplit("#", 1)
-                nids = get_notification_ids_by_repo_title(conn, repo_part, f"%#{_number}%")
-            else:
-                print(f"Invalid ref format: {ref}. Expected owner/repo#number", file=sys.stderr)
-                sys.exit(1)
+            owner, repo, number = _parse_ref(args.ref)
+            nids = get_notification_ids_by_ref(conn, owner, repo, number)
         else:
             print("Specify a ref (owner/repo#number) or --reason", file=sys.stderr)
             sys.exit(1)
@@ -171,11 +199,15 @@ def _cmd_done(args: argparse.Namespace) -> None:
             print("No matching notifications found.")
             return
 
+        errors = asyncio.run(_dismiss_batch(token, nids))
         count = 0
         for nid in nids:
-            asyncio.run(mark_as_read(token, nid))
-            delete_notification(conn, nid)
-            count += 1
+            if not any(nid in err_msg for err_msg in errors):
+                delete_notification(conn, nid)
+                count += 1
+        if errors:
+            for err in errors:
+                print(f"Error: {err}", file=sys.stderr)
         print(f"Done: {count} notification(s) dismissed.")
     finally:
         conn.close()
@@ -187,41 +219,37 @@ def _launch_tui() -> None:
     Imports are deferred to avoid loading Textual/backend for CLI-only commands.
     """
     from forge_triage.backend import backend_worker  # noqa: PLC0415
-    from forge_triage.messages import (  # noqa: PLC0415, TC001
-        ErrorResult,
-        FetchCommentsRequest,
-        FetchCommentsResult,
-        MarkDoneRequest,
-        MarkDoneResult,
-        PreLoadCommentsRequest,
-        PreLoadComplete,
-    )
+    from forge_triage.messages import Request, Response  # noqa: PLC0415, TC001
     from forge_triage.tui.app import TriageApp  # noqa: PLC0415
 
+    try:
+        token = get_github_token()
+    except AuthError as e:
+        print(f"Authentication error: {e}", file=sys.stderr)
+        print("Run 'gh auth login' to authenticate.", file=sys.stderr)
+        sys.exit(1)
+
     conn = open_db()
-    token = get_github_token()
+    try:
+        request_queue: asyncio.Queue[Request] = asyncio.Queue()
+        response_queue: asyncio.Queue[Response] = asyncio.Queue()
 
-    request_queue: asyncio.Queue[
-        MarkDoneRequest | FetchCommentsRequest | PreLoadCommentsRequest
-    ] = asyncio.Queue()
-    response_queue: asyncio.Queue[
-        MarkDoneResult | FetchCommentsResult | PreLoadComplete | ErrorResult
-    ] = asyncio.Queue()
+        app = TriageApp(
+            conn=conn,
+            request_queue=request_queue,
+            response_queue=response_queue,
+        )
 
-    app = TriageApp(
-        conn=conn,
-        request_queue=request_queue,
-        response_queue=response_queue,
-    )
+        async def _run() -> None:
+            worker = asyncio.create_task(backend_worker(request_queue, response_queue, conn, token))
+            try:
+                await app.run_async()
+            finally:
+                worker.cancel()
 
-    async def _run() -> None:
-        worker = asyncio.create_task(backend_worker(request_queue, response_queue, conn, token))
-        try:
-            await app.run_async()
-        finally:
-            worker.cancel()
-
-    asyncio.run(_run())
+        asyncio.run(_run())
+    finally:
+        conn.close()
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -234,7 +262,6 @@ def main(argv: list[str] | None = None) -> None:
 
     # sync
     sync_parser = subparsers.add_parser("sync", help="Fetch notifications from GitHub")
-    sync_parser.add_argument("-v", "--verbose", action="store_true")
     sync_parser.add_argument(
         "--max",
         type=int,
