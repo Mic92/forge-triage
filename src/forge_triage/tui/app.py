@@ -20,9 +20,12 @@ from forge_triage.messages import (
     FetchPRDetailResult,
     MarkDoneRequest,
     MarkDoneResult,
+    PostReviewCommentResult,
     PreLoadComplete,
     Request,
+    ResolveThreadResult,
     Response,
+    SubmitReviewResult,
 )
 from forge_triage.tui.detail_pane import DetailPane
 from forge_triage.tui.detail_screen import DetailScreen
@@ -180,6 +183,12 @@ class TriageApp(App[None]):
             self._on_preload_complete(resp)
         elif isinstance(resp, FetchPRDetailResult):
             self._on_fetch_pr_detail_result(resp)
+        elif isinstance(resp, PostReviewCommentResult):
+            self._on_post_review_comment_result(resp)
+        elif isinstance(resp, SubmitReviewResult):
+            self._on_submit_review_result(resp)
+        elif isinstance(resp, ResolveThreadResult):
+            self._on_resolve_thread_result(resp)
         elif isinstance(resp, ErrorResult):
             self._on_error_result(resp)
 
@@ -220,6 +229,27 @@ class TriageApp(App[None]):
             self.notify("PR details loaded")
         else:
             self.notify(f"Failed to load PR details: {result.error}", severity="error")
+
+    def _on_post_review_comment_result(self, result: PostReviewCommentResult) -> None:
+        """Handle review comment result — confirm or show error."""
+        if result.success:
+            self.notify("Comment posted")
+        else:
+            self.notify(f"Comment failed: {result.error}", severity="error")
+
+    def _on_submit_review_result(self, result: SubmitReviewResult) -> None:
+        """Handle review submission result — confirm or show error."""
+        if result.success:
+            self.notify("Review submitted")
+        else:
+            self.notify(f"Review failed: {result.error}", severity="error")
+
+    def _on_resolve_thread_result(self, result: ResolveThreadResult) -> None:
+        """Handle thread resolve result — confirm or show error."""
+        if result.success:
+            self.notify("Thread updated")
+        else:
+            self.notify(f"Thread update failed: {result.error}", severity="error")
 
     def _on_error_result(self, result: ErrorResult) -> None:
         """Handle error — show notification."""
