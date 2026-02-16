@@ -75,6 +75,44 @@ NOTIFICATION_NULL_SUBJECT_URL = {
     "url": "https://api.github.com/notifications/threads/2001",
 }
 
+NOTIFICATION_CHECKSUITE = {
+    "id": "3001",
+    "repository": {
+        "full_name": "Mic92/dotfiles",
+        "owner": {"login": "Mic92"},
+        "name": "dotfiles",
+    },
+    "subject": {
+        "type": "CheckSuite",
+        "title": "Update Flake Inputs workflow run failed for main branch",
+        "url": None,
+        "latest_comment_url": None,
+    },
+    "reason": "ci_activity",
+    "updated_at": "2026-02-09T09:00:00Z",
+    "unread": True,
+    "url": "https://api.github.com/notifications/threads/3001",
+}
+
+NOTIFICATION_RELEASE = {
+    "id": "3002",
+    "repository": {
+        "full_name": "cheat/cheat",
+        "owner": {"login": "cheat"},
+        "name": "cheat",
+    },
+    "subject": {
+        "type": "Release",
+        "title": "5.1.0",
+        "url": "https://api.github.com/repos/cheat/cheat/releases/286633434",
+        "latest_comment_url": "https://api.github.com/repos/cheat/cheat/releases/286633434",
+    },
+    "reason": "subscribed",
+    "updated_at": "2026-02-09T09:30:00Z",
+    "unread": True,
+    "url": "https://api.github.com/notifications/threads/3002",
+}
+
 
 def _stub_rate_limit() -> dict[str, str]:
     return {"X-RateLimit-Remaining": "4900"}
@@ -138,10 +176,16 @@ async def test_initial_sync(tmp_db: sqlite3.Connection, httpx_mock: HTTPXMock) -
 
 
 async def test_sync_mixed_notifications(tmp_db: sqlite3.Connection, httpx_mock: HTTPXMock) -> None:
-    """Sync with merged PR + closed issue + null-URL discussion across two repos."""
+    """Sync with merged PR + closed issue + null-URL discussion + CheckSuite + Release."""
     httpx_mock.add_response(
         url="https://api.github.com/notifications",
-        json=[NOTIFICATION_PR, NOTIFICATION_ISSUE, NOTIFICATION_NULL_SUBJECT_URL],
+        json=[
+            NOTIFICATION_PR,
+            NOTIFICATION_ISSUE,
+            NOTIFICATION_NULL_SUBJECT_URL,
+            NOTIFICATION_CHECKSUITE,
+            NOTIFICATION_RELEASE,
+        ],
         headers=_stub_rate_limit(),
     )
     httpx_mock.add_response(
@@ -176,23 +220,37 @@ async def test_sync_mixed_notifications(tmp_db: sqlite3.Connection, httpx_mock: 
 
     result = await sync(tmp_db, "ghp_test")
 
-    assert result.new == 3
-    assert result.total == 3
+    assert result.new == 5
+    assert result.total == 5
 
     pr = get_notification(tmp_db, "1001")
     assert pr is not None
     assert pr.subject_state == "merged"
     assert pr.ci_status == "success"
+    assert pr.html_url == "https://github.com/NixOS/nixpkgs/pull/12345"
 
     issue = get_notification(tmp_db, "1002")
     assert issue is not None
     assert issue.subject_state == "closed"
     assert issue.ci_status is None
+    assert issue.html_url == "https://github.com/other/repo/issues/42"
 
     disc = get_notification(tmp_db, "2001")
     assert disc is not None
     assert disc.subject_state is None
     assert disc.subject_url is None
+    assert disc.html_url == "https://github.com/NixOS/nixpkgs"
+
+    # CheckSuite: null subject URL should get actions page fallback
+    checksuite = get_notification(tmp_db, "3001")
+    assert checksuite is not None
+    assert checksuite.subject_url is None
+    assert checksuite.html_url == "https://github.com/Mic92/dotfiles/actions"
+
+    # Release: numeric API ID should become /releases/tag/<title>
+    release = get_notification(tmp_db, "3002")
+    assert release is not None
+    assert release.html_url == "https://github.com/cheat/cheat/releases/tag/5.1.0"
 
 
 async def test_purge_stale_notifications(tmp_db: sqlite3.Connection, httpx_mock: HTTPXMock) -> None:

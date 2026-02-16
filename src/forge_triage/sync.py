@@ -51,6 +51,39 @@ class SyncResult:
     total: int
 
 
+def _subject_html_url(notif: dict[str, Any]) -> str | None:
+    """Derive a browser-friendly URL from a GitHub notification.
+
+    GitHub's notification API provides subject.url as an API endpoint, not a
+    browser link.  The naive api→html rewrite doesn't work for all types:
+    - Releases use /releases/<numeric-id> in the API but need /releases/tag/<tag>
+      in the browser (the numeric form 404s).
+    - CheckSuite notifications have subject.url = null; we fall back to the
+      repo's Actions page.
+    - Other null-URL types (Discussion, etc.) fall back to the repo page.
+    """
+    repo = notif["repository"]
+    owner: str = repo["owner"]["login"]
+    name: str = repo["name"]
+    subject = notif["subject"]
+    subject_url: str | None = subject["url"]
+    subject_type: str = subject["type"]
+
+    if subject_url is not None:
+        if subject_type == "Release":
+            # API URL /repos/o/r/releases/12345 → /releases/tag/<title>
+            tag = subject["title"]
+            return f"https://github.com/{owner}/{name}/releases/tag/{tag}"
+        return subject_url.replace("api.github.com/repos", "github.com").replace(
+            "/pulls/", "/pull/"
+        )
+
+    # Null subject URL — provide the best fallback we can
+    if subject_type == "CheckSuite":
+        return f"https://github.com/{owner}/{name}/actions"
+    return f"https://github.com/{owner}/{name}"
+
+
 def _notification_to_row(
     notif: dict[str, Any],
     ci_status: str | None,
@@ -61,15 +94,8 @@ def _notification_to_row(
     """Convert a GitHub API notification to a DB row dict."""
     repo = notif["repository"]
     subject = notif["subject"]
-    # Convert API URL to browser URL (subject.url can be null for some types)
     subject_url: str | None = subject["url"]
-    if subject_url is not None:
-        html_url: str | None = (
-            subject_url.replace("api.github.com/repos", "github.com")
-            .replace("/pulls/", "/pull/")
-        )
-    else:
-        html_url = None
+    html_url = _subject_html_url(notif)
     return {
         "notification_id": notif["id"],
         "repo_owner": repo["owner"]["login"],
