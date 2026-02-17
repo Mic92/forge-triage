@@ -18,10 +18,7 @@ _LIST_HELP = """\
   [bold]j / ↓[/bold]     Move down
   [bold]k / ↑[/bold]     Move up
   [bold]Enter[/bold]     Open detail view
-  [bold]d[/bold]         Mark done (single)
-  [bold]D[/bold]         Mark done (selected)
-  [bold]x[/bold]         Toggle selection
-  [bold]*[/bold]         Select all visible
+  [bold]d[/bold]         Mark done
   [bold]o[/bold]         Open in browser
   [bold]/[/bold]         Filter by text
   [bold]r[/bold]         Refresh list

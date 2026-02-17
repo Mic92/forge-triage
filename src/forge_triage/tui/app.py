@@ -73,13 +73,10 @@ class TriageApp(App[None]):
         Binding("q", "quit", "Quit", show=True),
         Binding("question_mark", "show_help", "Help", show=True),
         Binding("d", "mark_done", "Done", show=True, priority=True),
-        Binding("D", "bulk_done", "Bulk Done", show=True, key_display="D"),
         Binding("o", "open_browser", "Open", show=True),
         Binding("slash", "start_filter", "Filter", show=True),
         Binding("r", "refresh", "Refresh", show=True),
         Binding("escape", "clear_filter", "Clear", show=True),
-        Binding("x", "toggle_select", "Select"),
-        Binding("asterisk", "select_all", "Select All"),
     ]
 
     def __init__(
@@ -97,7 +94,6 @@ class TriageApp(App[None]):
         self._response_queue: asyncio.Queue[Response] = (
             response_queue if response_queue is not None else asyncio.Queue()
         )
-        self._selected: set[str] = set()
         self._filter_text = ""
 
     def compose(self) -> ComposeResult:
@@ -266,21 +262,7 @@ class TriageApp(App[None]):
         if nid is None:
             return
         nlist.remove_notification(nid)
-        self._selected.discard(nid)
         self._request_queue.put_nowait(MarkDoneRequest(notification_ids=(nid,)))
-
-    def action_bulk_done(self) -> None:
-        """Mark all selected notifications as done."""
-        if not self._selected:
-            return
-        nlist = self._get_notification_list()
-        if nlist is None:
-            return
-        ids = tuple(self._selected)
-        for nid in ids:
-            nlist.remove_notification(nid)
-        self._selected.clear()
-        self._request_queue.put_nowait(MarkDoneRequest(notification_ids=ids))
 
     def action_open_browser(self) -> None:
         """Open the highlighted notification's URL in the browser."""
@@ -314,7 +296,6 @@ class TriageApp(App[None]):
 
     def action_refresh(self) -> None:
         """Reload notification list from the database."""
-        self._selected.clear()
         nlist = self._get_notification_list()
         if nlist is not None:
             nlist.refresh_data(filter_text=self._filter_text)
@@ -325,7 +306,6 @@ class TriageApp(App[None]):
         """Clear all filters."""
         if not self._filter_text:
             return
-        self._selected.clear()
         self._filter_text = ""
         filter_input = self.query_one("#filter-input", Input)
         filter_input.styles.display = "none"
@@ -334,26 +314,6 @@ class TriageApp(App[None]):
         if nlist is not None:
             nlist.refresh_data()
             self.set_focus(nlist)
-
-    def action_toggle_select(self) -> None:
-        """Toggle selection on the current notification."""
-        nlist = self._get_notification_list()
-        if nlist is None:
-            return
-        nid = nlist.selected_notification_id
-        if nid is None:
-            return
-        if nid in self._selected:
-            self._selected.discard(nid)
-        else:
-            self._selected.add(nid)
-
-    def action_select_all(self) -> None:
-        """Select all visible notifications."""
-        nlist = self._get_notification_list()
-        if nlist is None:
-            return
-        self._selected = set(nlist.visible_notification_ids)
 
     def action_open_detail(self) -> None:
         """Open the full-screen detail view for the selected notification."""

@@ -77,11 +77,6 @@ class NotificationList(DataTable[str | Text]):
             self._row_keys.append(str(row_key))
 
     @property
-    def visible_notification_ids(self) -> list[str]:
-        """Return a copy of the currently visible notification IDs."""
-        return list(self._notification_ids)
-
-    @property
     def selected_notification_id(self) -> str | None:
         """Return the notification_id of the currently highlighted row."""
         if self.cursor_row < 0 or self.cursor_row >= len(self._notification_ids):
