@@ -351,6 +351,3 @@ async def test_resolve_thread_returns_false_on_graphql_errors(httpx_mock: HTTPXM
     )
     result = await resolve_review_thread("ghp_test", "bad-id")
     assert result is False
-
-
-

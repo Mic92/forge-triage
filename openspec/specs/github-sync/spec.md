@@ -3,13 +3,9 @@
 ### Requirement: Fetch notifications from GitHub API
 The system SHALL fetch the authenticated user's notifications from the GitHub Notifications API, then batch-fetch subject details (state, merged status, CI status) via the GitHub GraphQL API, and store everything in a local SQLite database.
 
-#### Scenario: Initial sync with no local data
-- **WHEN** the user runs `forge-triage sync` for the first time
-- **THEN** the system SHALL fetch all unread notifications from GitHub via REST, then batch-fetch subject details (state, merged, CI status) for all PR and Issue notifications via a single GraphQL query, and insert them into the SQLite database with fields: notification_id, repo_owner, repo_name, subject_type, subject_title, subject_url, reason, updated_at, unread status, subject_state, ci_status, and raw JSON payload
-
-#### Scenario: Incremental sync
-- **WHEN** the user runs `forge-triage sync` and the database already contains notifications
-- **THEN** the system SHALL fetch only notifications updated since the last sync timestamp (using `since` parameter) via REST, batch-fetch subject details via GraphQL, and upsert them into the database including the current subject_state and ci_status
+#### Scenario: Full sync
+- **WHEN** the user runs `forge-triage sync`
+- **THEN** the system SHALL fetch all unread notifications from GitHub via REST (without the `since` parameter, capped to 1000), then batch-fetch subject details (state, merged, CI status) for all PR and Issue notifications via GraphQL, and upsert them into the SQLite database with fields: notification_id, repo_owner, repo_name, subject_type, subject_title, subject_url, reason, updated_at, unread status, subject_state, ci_status, and raw JSON payload.  Every sync is a full sync so that purge logic can reliably detect notifications that no longer exist on the server.
 
 #### Scenario: Batch GraphQL query for subject details
 - **WHEN** notifications have been fetched via REST

@@ -155,7 +155,7 @@ _MIGRATIONS: list[tuple[int, str]] = [
 _LATEST_VERSION = _MIGRATIONS[-1][0] if _MIGRATIONS else 0
 
 
-def _get_schema_version(conn: sqlite3.Connection) -> int:
+def get_schema_version(conn: sqlite3.Connection) -> int:
     """Read schema_version from sync_metadata, default 0 for legacy DBs."""
     row = conn.execute("SELECT value FROM sync_metadata WHERE key = 'schema_version'").fetchone()
     return int(row["value"]) if row else 0
@@ -191,7 +191,7 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         conn.commit()
         return
 
-    current_version = _get_schema_version(conn)
+    current_version = get_schema_version(conn)
     for version, sql in _MIGRATIONS:
         if version > current_version:
             conn.executescript(sql)
@@ -295,22 +295,6 @@ def get_comments(conn: sqlite3.Connection, notification_id: str) -> list[Comment
         (notification_id,),
     ).fetchall()
     return [_row_to_comment(r) for r in rows]
-
-
-def get_sync_meta(conn: sqlite3.Connection, key: str) -> str | None:
-    """Return a sync metadata value, or None if not set."""
-    row = conn.execute("SELECT value FROM sync_metadata WHERE key = ?", (key,)).fetchone()
-    return row["value"] if row else None
-
-
-def set_sync_meta(conn: sqlite3.Connection, key: str, value: str) -> None:
-    """Set a sync metadata value (insert or update)."""
-    conn.execute(
-        "INSERT INTO sync_metadata (key, value) VALUES (?, ?)"
-        " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        (key, value),
-    )
-    conn.commit()
 
 
 def delete_notification(conn: sqlite3.Connection, notification_id: str) -> None:

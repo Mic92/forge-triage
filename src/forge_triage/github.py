@@ -252,13 +252,18 @@ def _parse_next_link(link_header: str) -> str | None:
 
 async def fetch_notifications(
     token: str,
-    since: str | None = None,
+    *,
+    max_results: int = 0,
 ) -> list[dict[str, Any]]:
-    """Fetch all notification pages from the GitHub API."""
+    """Fetch notification pages from the GitHub API.
+
+    Args:
+        token: GitHub bearer token.
+        max_results: Stop paginating once this many notifications have been
+            collected.  0 means no limit (fetch all pages).
+    """
     notifications: list[dict[str, Any]] = []
-    params: dict[str, str] = {}
-    if since:
-        params["since"] = since
+    params: dict[str, str] = {"per_page": "50"}
 
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}
     async with httpx.AsyncClient(headers=headers, timeout=REQUEST_TIMEOUT) as client:
@@ -272,6 +277,9 @@ async def fetch_notifications(
             _check_rate_limit(response)
             response.raise_for_status()
             notifications.extend(response.json())
+
+            if max_results and len(notifications) >= max_results:
+                break
 
             link = response.headers.get("Link", "")
             next_url = _parse_next_link(link)

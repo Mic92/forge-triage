@@ -61,7 +61,7 @@ NOTIFICATION_2 = {
 async def test_fetch_notifications_pagination(httpx_mock: HTTPXMock) -> None:
     """Follow Link header for pagination, accumulate results."""
     httpx_mock.add_response(
-        url="https://api.github.com/notifications",
+        url="https://api.github.com/notifications?per_page=50",
         json=[NOTIFICATION_1],
         headers={
             "Link": '<https://api.github.com/notifications?page=2>; rel="next"',

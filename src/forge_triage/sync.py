@@ -11,12 +11,10 @@ from typing import TYPE_CHECKING, Any
 from forge_triage.db import (
     get_notification,
     get_notification_count,
-    get_sync_meta,
     get_top_notifications_for_preload,
     mark_comments_loaded,
     purge_all_notifications,
     purge_stale_notifications,
-    set_sync_meta,
     upsert_comments,
     upsert_notification,
 )
@@ -209,11 +207,9 @@ async def sync(
     on_progress: Callable[[int, int], None] | None = None,
 ) -> SyncResult:
     """Full sync: fetch notifications, compute priorities, pre-load comments."""
-    since = get_sync_meta(conn, "last_sync_at")
-
-    # Fetch notifications (capped to avoid unbounded API calls)
-    raw_notifications = await fetch_notifications(token, since=since)
-    raw_notifications = raw_notifications[:max_notifications]
+    # Always fetch without `since` — we want the full set so purge logic works
+    # correctly and we always have the latest N notifications.
+    raw_notifications = await fetch_notifications(token, max_results=max_notifications)
 
     # Batch-fetch subject details (state + CI) via GraphQL
     try:
@@ -252,11 +248,6 @@ async def sync(
 
     # Pre-load comments for top priority items
     await _preload_comments_for_top_n(conn, token)
-
-    # Update sync metadata
-    if raw_notifications:
-        latest = max(n["updated_at"] for n in raw_notifications)
-        set_sync_meta(conn, "last_sync_at", latest)
 
     total = get_notification_count(conn)
 

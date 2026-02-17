@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Any
 from forge_triage.db import (
     get_notification,
     get_notification_count,
-    get_sync_meta,
     upsert_notification,
 )
 from forge_triage.sync import sync
@@ -125,7 +124,7 @@ def _graphql_response(data: dict[str, Any]) -> dict[str, Any]:
 async def test_initial_sync(tmp_db: sqlite3.Connection, httpx_mock: HTTPXMock) -> None:
     """Full initial sync: fetch → GraphQL details → priority → pre-load comments."""
     httpx_mock.add_response(
-        url="https://api.github.com/notifications",
+        url="https://api.github.com/notifications?per_page=50",
         json=[NOTIFICATION_PR],
         headers=_stub_rate_limit(),
     )
@@ -172,13 +171,11 @@ async def test_initial_sync(tmp_db: sqlite3.Connection, httpx_mock: HTTPXMock) -
     assert row.subject_state == "open"
     assert row.comments_loaded == 1
 
-    assert get_sync_meta(tmp_db, "last_sync_at") == "2026-02-09T07:00:00Z"
-
 
 async def test_sync_mixed_notifications(tmp_db: sqlite3.Connection, httpx_mock: HTTPXMock) -> None:
     """Sync with merged PR + closed issue + null-URL discussion + CheckSuite + Release."""
     httpx_mock.add_response(
-        url="https://api.github.com/notifications",
+        url="https://api.github.com/notifications?per_page=50",
         json=[
             NOTIFICATION_PR,
             NOTIFICATION_ISSUE,
@@ -287,7 +284,7 @@ async def test_purge_stale_notifications(tmp_db: sqlite3.Connection, httpx_mock:
         returned.append(n)
 
     httpx_mock.add_response(
-        url="https://api.github.com/notifications",
+        url="https://api.github.com/notifications?per_page=50",
         json=returned,
         headers=_stub_rate_limit(),
     )
@@ -324,6 +321,69 @@ async def test_purge_stale_notifications(tmp_db: sqlite3.Connection, httpx_mock:
     assert result.total == 4  # 3 returned + 1 kept
 
 
+async def test_sync_paginates_and_caps_at_max(
+    tmp_db: sqlite3.Connection, httpx_mock: HTTPXMock
+) -> None:
+    """Sync follows pagination links and stops once max_notifications is reached.
+
+    With max_notifications=2 and two pages of 1 notification each, sync should
+    fetch both pages and stop without requesting a third.
+    """
+    page1_notif = {**NOTIFICATION_PR, "id": "6001", "updated_at": "2026-02-09T07:00:00Z"}
+    page2_notif = {**NOTIFICATION_PR, "id": "6002", "updated_at": "2026-02-09T08:00:00Z"}
+
+    httpx_mock.add_response(
+        url="https://api.github.com/notifications?per_page=50",
+        json=[page1_notif],
+        headers={
+            **_stub_rate_limit(),
+            "Link": '<https://api.github.com/notifications?page=2>; rel="next"',
+        },
+    )
+    httpx_mock.add_response(
+        url="https://api.github.com/notifications?page=2",
+        json=[page2_notif],
+        headers={
+            **_stub_rate_limit(),
+            # There would be a page 3, but sync should stop after hitting max
+            "Link": '<https://api.github.com/notifications?page=3>; rel="next"',
+        },
+    )
+    # page 3 is NOT mocked — if sync requests it, the test fails
+    httpx_mock.add_response(
+        url="https://api.github.com/graphql",
+        json=_graphql_response(
+            {
+                "r0": {
+                    f"pr_{nid}": {
+                        "state": "OPEN",
+                        "merged": False,
+                        "commits": {"nodes": [{"commit": {"statusCheckRollup": None}}]},
+                    }
+                    for nid in ["6001", "6002"]
+                },
+            }
+        ),
+    )
+    httpx_mock.add_response(
+        url="https://api.github.com/repos/NixOS/nixpkgs/issues/12345/comments",
+        json=[],
+        headers=_stub_rate_limit(),
+    )
+    httpx_mock.add_response(
+        url="https://api.github.com/repos/NixOS/nixpkgs/issues/12345/comments",
+        json=[],
+        headers=_stub_rate_limit(),
+    )
+
+    result = await sync(tmp_db, "ghp_test", max_notifications=2)
+
+    assert result.new == 2
+    assert result.total == 2
+    assert get_notification(tmp_db, "6001") is not None
+    assert get_notification(tmp_db, "6002") is not None
+
+
 async def test_purge_all_on_empty_sync(tmp_db: sqlite3.Connection, httpx_mock: HTTPXMock) -> None:
     """Empty sync response purges all local notifications."""
     upsert_notification(tmp_db, NotificationRow(notification_id="9001").as_dict())
@@ -331,7 +391,7 @@ async def test_purge_all_on_empty_sync(tmp_db: sqlite3.Connection, httpx_mock: H
     assert get_notification_count(tmp_db) == 2
 
     httpx_mock.add_response(
-        url="https://api.github.com/notifications",
+        url="https://api.github.com/notifications?per_page=50",
         json=[],
         headers=_stub_rate_limit(),
     )
