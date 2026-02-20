@@ -49,11 +49,7 @@ keeps everything in a local SQLite database for instant access.
 - **Vim keybindings** — `j`/`k` navigation, `d` to mark done, `o` to
   open in browser, `/` to filter, `g`/`G` to jump, `Ctrl+d`/`Ctrl+u` to
   scroll half-page.
-- **Comment pre-loading** — Top priority notifications have their
-  comments fetched automatically during sync.
-- **GraphQL batch fetching** — PR/issue state and CI status are fetched
-  in bulk via the GitHub GraphQL API to minimise API calls.
-- **Local SQLite database** — All data is stored locally for instant startup and offline browsing.
+- **Local cache** — All data is stored locally for instant startup and offline browsing.
 - **CLI subcommands** — `sync`, `ls`, `stats`, `done`, and raw `sql`
   for scripting and quick checks without the TUI.
 
@@ -189,7 +185,7 @@ mode = "background"
 | `args` | ✓ | Command and arguments as a list (no shell interpolation) |
 | `mode` | ✓ | `"foreground"` suspends the TUI; `"background"` fires and forgets |
 | `cwd`  | | Working directory (supports template vars and `~`/`$HOME`) |
-| `env`  | | Extra environment variables merged on top of the current env |
+| `env`  | | Extra environment variables added to the command's environment |
 
 **Template variables** available in `args`, `cwd`, and `env` values:
 
