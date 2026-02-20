@@ -4,6 +4,8 @@ A fast terminal UI for triaging GitHub notifications. Prioritizes what
 needs your attention, lets you triage with vim-style keybindings, and
 keeps everything in a local SQLite database for instant access.
 
+![forge-triage TUI screenshot](https://github.com/Mic92/forge-triage/releases/download/assets/forge-triage-tui.png)
+
 ```
  ⭘                                                   forge-triage
     Repo                                            Title
