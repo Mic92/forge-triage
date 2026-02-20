@@ -40,6 +40,24 @@ class Notification:
         """Return a dict suitable for JSON serialization."""
         return asdict(self)
 
+    def meta_line(self, *, bold_ci: bool = True) -> str:
+        """Build the metadata line (repo, type, reason, state, CI) for display."""
+        parts = [
+            f"{self.repo_owner}/{self.repo_name}",
+            self.subject_type,
+            self.reason,
+        ]
+        if self.subject_state:
+            state_icons = {"open": "🟢", "closed": "🔴", "merged": "🟣"}
+            icon = state_icons.get(self.subject_state, "")
+            parts.append(f"{icon} {self.subject_state}")
+        if self.ci_status:
+            ci_icons = {"success": "✅", "failure": "❌", "pending": "⏳"}
+            icon = ci_icons.get(self.ci_status, "❓")
+            ci_label = "**CI:**" if bold_ci else "CI:"
+            parts.append(f"{ci_label} {icon} {self.ci_status}")
+        return "  •  ".join(parts)
+
 
 @dataclass
 class Comment:

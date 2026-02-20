@@ -32,23 +32,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _build_meta_line(notif: Notification) -> str:
-    """Build the metadata line (repo, type, reason, state, CI) for a notification."""
-    meta_parts = [
-        f"{notif.repo_owner}/{notif.repo_name}",
-        notif.subject_type,
-        notif.reason,
-    ]
-    if notif.subject_state:
-        state_icons = {"open": "🟢", "closed": "🔴", "merged": "🟣"}
-        icon = state_icons.get(notif.subject_state, "")
-        meta_parts.append(f"{icon} {notif.subject_state}")
-    if notif.ci_status:
-        ci_icons = {"success": "✅", "failure": "❌", "pending": "⏳"}
-        icon = ci_icons.get(notif.ci_status, "❓")
-        meta_parts.append(f"**CI:** {icon} {notif.ci_status}")
-    return "  •  ".join(meta_parts)
-
 
 def _render_review_threads(threads: list[ReviewComment]) -> list[str]:
     """Render review threads into markdown lines."""
@@ -188,7 +171,7 @@ class DetailScreen(Screen[None]):
         """Render the combined Conversation tab: PR metadata + description + review threads."""
         parts: list[str] = []
         parts.append(f"# {notif.subject_title}")
-        parts.append(_build_meta_line(notif))
+        parts.append(notif.meta_line())
 
         pr_details = get_pr_details(self._conn, self._notification_id)
         if pr_details is not None:
@@ -263,7 +246,7 @@ class DetailScreen(Screen[None]):
         """Render a simple issue/other notification view."""
         parts: list[str] = []
         parts.append(f"# {notif.subject_title}")
-        parts.append(_build_meta_line(notif))
+        parts.append(notif.meta_line())
         parts.append("")
 
         comments = get_comments(self._conn, self._notification_id)

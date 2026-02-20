@@ -56,20 +56,7 @@ class DetailPane(Markdown):
 
         parts.append(_format_title(notif))
 
-        meta_parts = [
-            f"{notif.repo_owner}/{notif.repo_name}",
-            notif.subject_type,
-            notif.reason,
-        ]
-        if notif.subject_state:
-            state_icons = {"open": "🟢", "closed": "🔴", "merged": "🟣"}
-            icon = state_icons.get(notif.subject_state, "")
-            meta_parts.append(f"{icon} {notif.subject_state}")
-        if notif.ci_status:
-            ci_icons = {"success": "✅", "failure": "❌", "pending": "⏳"}
-            icon = ci_icons.get(notif.ci_status, "❓")
-            meta_parts.append(f"CI: {icon} {notif.ci_status}")
-        parts.append("  •  ".join(meta_parts))
+        parts.append(notif.meta_line())
 
         # Show PR-specific preview data if cached
         pr_details = get_pr_details(self._conn, notification_id)
