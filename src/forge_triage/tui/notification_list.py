@@ -49,7 +49,7 @@ class NotificationList(DataTable[str | Text]):
 
     def on_mount(self) -> None:
         """Set up columns and load data on mount."""
-        self.add_columns("", "Repo", "Title", "Reason")
+        self.add_columns("", "Repo", "Title")
         self.refresh_data()
 
     def refresh_data(
@@ -72,7 +72,7 @@ class NotificationList(DataTable[str | Text]):
             icon = _state_icon(notif.subject_type, notif.subject_state)
             repo = f"{notif.repo_owner}/{notif.repo_name}"
             nid = notif.notification_id
-            row_key = self.add_row(icon, repo, notif.subject_title, notif.reason, key=nid)
+            row_key = self.add_row(icon, repo, notif.subject_title, key=nid)
             self._notification_ids.append(nid)
             self._row_keys.append(str(row_key))
 
