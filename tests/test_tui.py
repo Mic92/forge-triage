@@ -5,11 +5,13 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
+from forge_triage.config import UserCommand
 from forge_triage.db import upsert_notification
 from forge_triage.messages import MarkDoneRequest, Request
 from forge_triage.tui.app import TriageApp
 from forge_triage.tui.detail_pane import DetailPane
 from forge_triage.tui.notification_list import NotificationList, _state_icon
+from forge_triage.tui.widgets.command_palette import CommandPalette
 from tests.conftest import NotificationRow
 
 if TYPE_CHECKING:
@@ -181,7 +183,10 @@ async def test_detail_pane_updates_on_cursor_move(tmp_db: sqlite3.Connection) ->
         # Row 4 (1004): plain URL (discussion) → **[Discuss architecture](url)**
         await pilot.press("j")
         await pilot.pause()
-        assert "[Discuss architecture](https://github.com/NixOS/nixpkgs/discussions/42)" in detail.source
+        assert (
+            "[Discuss architecture](https://github.com/NixOS/nixpkgs/discussions/42)"
+            in detail.source
+        )
 
         # Row 5 (1005): no URL → **Commit note**
         await pilot.press("j")
@@ -248,3 +253,90 @@ def test_state_icon_mapping() -> None:
     assert _state_icon("Discussion", None).style == "dim"
 
     assert _state_icon(None, None).plain == "\uf49a"
+
+
+def _populate_pr_notification(conn: sqlite3.Connection) -> None:
+    """Insert a single PR notification."""
+    upsert_notification(
+        conn,
+        NotificationRow(
+            notification_id="2001",
+            subject_type="PullRequest",
+            subject_title="Fix the thing",
+            reason="review_requested",
+            priority_score=1000,
+            priority_tier="blocking",
+        ).as_dict(),
+    )
+
+
+def _populate_issue_notification(conn: sqlite3.Connection) -> None:
+    """Insert a single Issue notification."""
+    upsert_notification(
+        conn,
+        NotificationRow(
+            notification_id="3001",
+            subject_type="Issue",
+            subject_title="Bug report",
+            reason="mention",
+            priority_score=500,
+            priority_tier="action",
+        ).as_dict(),
+    )
+
+
+async def test_main_list_palette_opens_for_pr(tmp_db: sqlite3.Connection) -> None:
+    """Pressing `:` on a PR in the main list → CommandPalette pushed with user commands."""
+    _populate_pr_notification(tmp_db)
+    user_commands = [
+        UserCommand(
+            name="Checkout", args=["gh", "pr", "checkout", "{pr_number}"], mode="foreground"
+        ),
+    ]
+
+    app = TriageApp(conn=tmp_db, user_commands=user_commands)
+    async with app.run_test(size=(120, 40)) as pilot:
+        nlist = app.query_one(NotificationList)
+        assert nlist.selected_notification_id == "2001"
+
+        await pilot.press("colon")
+        await pilot.pause()
+
+        assert isinstance(app.screen, CommandPalette)
+        assert "Checkout" in app.screen.action_labels
+
+
+async def test_main_list_palette_non_pr_shows_notify(tmp_db: sqlite3.Connection) -> None:
+    """Pressing `:` on a non-PR notification → notify shown, no palette pushed."""
+    _populate_issue_notification(tmp_db)
+
+    app = TriageApp(
+        conn=tmp_db,
+        user_commands=[
+            UserCommand(name="Checkout", args=["gh", "pr", "checkout"], mode="foreground"),
+        ],
+    )
+    async with app.run_test(size=(120, 40)) as pilot:
+        nlist = app.query_one(NotificationList)
+        assert nlist.selected_notification_id == "3001"
+
+        await pilot.press("colon")
+        await pilot.pause()
+
+        # Should stay on main screen — no palette pushed
+        assert not isinstance(app.screen, CommandPalette)
+
+
+async def test_main_list_palette_no_commands_shows_notify(tmp_db: sqlite3.Connection) -> None:
+    """Pressing `:` on a PR with no user commands → notify shown, no palette pushed."""
+    _populate_pr_notification(tmp_db)
+
+    app = TriageApp(conn=tmp_db, user_commands=[])
+    async with app.run_test(size=(120, 40)) as pilot:
+        nlist = app.query_one(NotificationList)
+        assert nlist.selected_notification_id == "2001"
+
+        await pilot.press("colon")
+        await pilot.pause()
+
+        assert not isinstance(app.screen, CommandPalette)

@@ -38,6 +38,8 @@ if TYPE_CHECKING:
 
     from textual.binding import BindingType
 
+    from forge_triage.config import UserCommand
+
 POLL_INTERVAL = 0.1
 
 
@@ -77,6 +79,7 @@ class TriageApp(App[None]):
         Binding("slash", "start_filter", "Filter", show=True),
         Binding("r", "refresh", "Refresh", show=True),
         Binding("escape", "clear_filter", "Clear", show=True),
+        Binding("colon", "open_palette", "Actions", show=True),
     ]
 
     def __init__(
@@ -84,6 +87,7 @@ class TriageApp(App[None]):
         conn: sqlite3.Connection | None = None,
         request_queue: asyncio.Queue[Request] | None = None,
         response_queue: asyncio.Queue[Response] | None = None,
+        user_commands: list[UserCommand] | None = None,
     ) -> None:
         super().__init__()
         self._conn = conn if conn is not None else open_db()
@@ -94,6 +98,7 @@ class TriageApp(App[None]):
         self._response_queue: asyncio.Queue[Response] = (
             response_queue if response_queue is not None else asyncio.Queue()
         )
+        self._user_commands: list[UserCommand] = user_commands if user_commands is not None else []
         self._filter_text = ""
 
     def compose(self) -> ComposeResult:
@@ -323,7 +328,70 @@ class TriageApp(App[None]):
         nid = nlist.selected_notification_id
         if nid is None:
             return
-        self.push_screen(DetailScreen(self._conn, nid, request_queue=self._request_queue))
+        self.push_screen(
+            DetailScreen(
+                self._conn,
+                nid,
+                request_queue=self._request_queue,
+                user_commands=self._user_commands,
+            )
+        )
+
+    def action_open_palette(self) -> None:
+        """Open the command palette for the selected PR notification."""
+        from forge_triage.tui.widgets.command_palette import CommandPalette  # noqa: PLC0415
+        from forge_triage.tui.widgets.pr_command_runner import (  # noqa: PLC0415
+            build_template_vars,
+            resolve_cwd,
+            resolve_env,
+            run_background,
+            run_foreground,
+        )
+
+        nlist = self._get_notification_list()
+        if nlist is None:
+            return
+        nid = nlist.selected_notification_id
+        if nid is None:
+            return
+        notif = get_notification(self._conn, nid)
+        if notif is None:
+            return
+        if notif.subject_type != "PullRequest":
+            self.notify("Not a PR", severity="warning")
+            return
+        if not self._user_commands:
+            self.notify(
+                "No commands configured — add commands to ~/.config/forge-triage/commands.toml",
+                severity="information",
+            )
+            return
+
+        actions = [(f"user:{i}", cmd.name) for i, cmd in enumerate(self._user_commands)]
+
+        def _on_result(result: str | None) -> None:
+            if result is None or not result.startswith("user:"):
+                return
+            idx = int(result.split(":", 1)[1])
+            cmd = self._user_commands[idx]
+            from forge_triage.pr_db import get_pr_details  # noqa: PLC0415
+
+            pr_details = get_pr_details(self._conn, nid)
+            template_vars = build_template_vars(notif, pr_details)
+            try:
+                resolved_args = [arg.format_map(template_vars) for arg in cmd.args]
+                cwd = resolve_cwd(cmd.cwd, template_vars)
+                env = resolve_env(cmd.env, template_vars)
+            except KeyError as e:
+                msg = f"Template variable {e} not available for this PR"
+                self.notify(msg, severity="warning")
+                return
+            if cmd.mode == "foreground":
+                run_foreground(self, resolved_args, cwd=cwd, env=env)
+            else:
+                run_background(resolved_args, cwd=cwd, env=env)
+
+        self.push_screen(CommandPalette(actions), callback=_on_result)
 
     def action_show_help(self) -> None:
         """Show the help overlay."""

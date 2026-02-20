@@ -31,7 +31,7 @@ The system SHALL allow the user to press `Enter` on a notification in the list t
 - **THEN** the notification list SHALL restore its previous cursor position, scroll offset, and any active filter
 
 ### Requirement: Context-aware keybindings
-The system SHALL make the `q`, `Escape`, and `r` keybindings context-aware. Their behavior SHALL depend on which screen is active (main list view vs detail view).
+The system SHALL make the `q`, `Escape`, `r`, and `:` keybindings context-aware. Their behavior SHALL depend on which screen is active (main list view vs detail view).
 
 #### Scenario: q in main list view
 - **WHEN** the user presses `q` in the main list view
@@ -60,6 +60,18 @@ The system SHALL make the `q`, `Escape`, and `r` keybindings context-aware. Thei
 #### Scenario: r in detail view
 - **WHEN** the user presses `r` in the detail view
 - **THEN** the system SHALL refresh the currently viewed PR/issue data from the GitHub API
+
+#### Scenario: colon in main list view on a PR notification
+- **WHEN** the user presses `:` in the main list view with a PR notification highlighted
+- **THEN** the system SHALL open the action palette showing user-defined commands
+
+#### Scenario: colon in main list view on a non-PR notification
+- **WHEN** the user presses `:` in the main list view with a non-PR notification highlighted
+- **THEN** the system SHALL display a "Not a PR" notification and SHALL NOT open the palette
+
+#### Scenario: colon in detail view
+- **WHEN** the user presses `:` in the detail view
+- **THEN** the system SHALL open the action palette (behaviour defined by the pr-user-commands capability)
 
 ### Requirement: Conversations tab with threaded review discussions
 The system SHALL display PR review conversations as threaded discussions in the Conversations tab. Each review thread SHALL show the initial comment, all replies, and the thread's resolution state. Resolved threads SHALL be hidden by default.

@@ -27,10 +27,10 @@ if TYPE_CHECKING:
     from textual.app import ComposeResult
     from textual.binding import BindingType
 
+    from forge_triage.config import UserCommand
     from forge_triage.messages import Request
 
 logger = logging.getLogger(__name__)
-
 
 
 def _render_review_threads(threads: list[ReviewComment]) -> list[str]:
@@ -108,11 +108,13 @@ class DetailScreen(Screen[None]):
         conn: sqlite3.Connection,
         notification_id: str,
         request_queue: asyncio.Queue[Request] | None = None,
+        user_commands: list[UserCommand] | None = None,
     ) -> None:
         super().__init__()
         self._conn = conn
         self._notification_id = notification_id
         self._request_queue = request_queue
+        self._user_commands: list[UserCommand] = user_commands if user_commands is not None else []
         self._is_pr = False
         self.search_matches: list[int] = []  # line positions of matches
         self.search_index: int = 0
@@ -485,13 +487,13 @@ class DetailScreen(Screen[None]):
             pass
         else:
             return md.source
-        # Try Static — content stored as mangled __content attribute
+        # Try Static — content is VisualType but we only ever store plain strings here
         try:
             static = pane.query_one(Static)
         except NoMatches:
             pass
         else:
-            return static.content
+            return str(static.content)
         return ""
 
     def _focus_active_scroll(self) -> None:
@@ -526,7 +528,7 @@ class DetailScreen(Screen[None]):
         self.app.pop_screen()
 
     def action_open_palette(self) -> None:
-        """Open the command palette with available review actions."""
+        """Open the command palette with built-in review actions and user commands."""
         actions: list[tuple[str, str]] = [("refresh", "↻ Refresh")]
         if self._is_pr:
             actions = [
@@ -534,16 +536,47 @@ class DetailScreen(Screen[None]):
                 ("request_changes", "✗ Request Changes"),
                 *actions,
             ]
+        for i, cmd in enumerate(self._user_commands):
+            actions.append((f"user:{i}", cmd.name))
+        self.app.push_screen(CommandPalette(actions), callback=self._on_palette_result)
 
-        def _on_palette_result(result: str | None) -> None:
-            if result == "approve":
-                self._submit_review("APPROVE")
-            elif result == "request_changes":
-                self._submit_review("REQUEST_CHANGES")
-            elif result == "refresh":
-                self.action_refresh_detail()
+    def _on_palette_result(self, result: str | None) -> None:
+        """Handle the selected palette action."""
+        from forge_triage.pr_db import get_pr_details  # noqa: PLC0415
+        from forge_triage.tui.widgets.pr_command_runner import (  # noqa: PLC0415
+            build_template_vars,
+            resolve_cwd,
+            resolve_env,
+            run_background,
+            run_foreground,
+        )
 
-        self.app.push_screen(CommandPalette(actions), callback=_on_palette_result)
+        if result == "approve":
+            self._submit_review("APPROVE")
+        elif result == "request_changes":
+            self._submit_review("REQUEST_CHANGES")
+        elif result == "refresh":
+            self.action_refresh_detail()
+        elif result is not None and result.startswith("user:"):
+            idx = int(result.split(":", 1)[1])
+            cmd = self._user_commands[idx]
+            notif = get_notification(self._conn, self._notification_id)
+            if notif is None:
+                return
+            pr_details = get_pr_details(self._conn, self._notification_id)
+            template_vars = build_template_vars(notif, pr_details)
+            try:
+                resolved_args = [arg.format_map(template_vars) for arg in cmd.args]
+                cwd = resolve_cwd(cmd.cwd, template_vars)
+                env = resolve_env(cmd.env, template_vars)
+            except KeyError as e:
+                msg = f"Template variable {e} not available for this PR"
+                self.app.notify(msg, severity="warning")
+                return
+            if cmd.mode == "foreground":
+                run_foreground(self.app, resolved_args, cwd=cwd, env=env)
+            else:
+                run_background(resolved_args, cwd=cwd, env=env)
 
     def _submit_review(self, event: str) -> None:
         """Submit a PR review via the backend."""

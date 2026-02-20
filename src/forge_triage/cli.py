@@ -215,6 +215,7 @@ def _launch_tui() -> None:
     Imports are deferred to avoid loading Textual/backend for CLI-only commands.
     """
     from forge_triage.backend import backend_worker  # noqa: PLC0415
+    from forge_triage.config import ConfigError, get_config_path, load_commands  # noqa: PLC0415
     from forge_triage.messages import Request, Response  # noqa: PLC0415, TC001
     from forge_triage.tui.app import TriageApp  # noqa: PLC0415
 
@@ -223,6 +224,12 @@ def _launch_tui() -> None:
     except AuthError as e:
         print(f"Authentication error: {e}", file=sys.stderr)
         print("Run 'gh auth login' to authenticate.", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        user_commands = load_commands(get_config_path())
+    except ConfigError as e:
+        print(f"Config error: {e}", file=sys.stderr)
         sys.exit(1)
 
     conn = open_db()
@@ -234,6 +241,7 @@ def _launch_tui() -> None:
             conn=conn,
             request_queue=request_queue,
             response_queue=response_queue,
+            user_commands=user_commands,
         )
 
         async def _run() -> None:

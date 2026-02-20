@@ -8,11 +8,13 @@ from textual.containers import VerticalScroll
 from textual.css.query import NoMatches
 from textual.widgets import Input, Markdown, Static, TabbedContent
 
+from forge_triage.config import UserCommand
 from forge_triage.db import upsert_notification
 from forge_triage.pr_db import upsert_pr_details, upsert_pr_reviews, upsert_review_comments
 from forge_triage.tui.app import TriageApp
 from forge_triage.tui.detail_screen import DetailScreen
 from forge_triage.tui.help_screen import HelpScreen
+from forge_triage.tui.widgets.command_palette import CommandPalette
 from tests.conftest import NotificationRow
 
 if TYPE_CHECKING:
@@ -693,3 +695,41 @@ async def test_conversation_tab_shows_diff_hunk(tmp_db: sqlite3.Connection) -> N
         assert "ci/merge.js" in conversation.source
         # Diff hunk should be rendered as a code block
         assert "checklist['eligible'] = true" in conversation.source
+
+
+# === Command palette tests ===
+
+
+async def test_detail_palette_includes_builtins_and_user_commands(
+    tmp_db: sqlite3.Connection,
+) -> None:
+    """Pressing `:` in DetailScreen on a PR → palette shows built-ins then user commands."""
+    _seed_pr_notification(tmp_db)
+    user_commands = [
+        UserCommand(
+            name="Checkout PR", args=["gh", "pr", "checkout", "{pr_number}"], mode="foreground"
+        ),
+        UserCommand(name="Open in browser", args=["open", "{repo}"], mode="background"),
+    ]
+
+    app = TriageApp(conn=tmp_db, user_commands=user_commands)
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert isinstance(app.screen, DetailScreen)
+
+        await pilot.press("colon")
+        await pilot.pause()
+
+        assert isinstance(app.screen, CommandPalette)
+        palette = app.screen
+        labels = palette.action_labels
+
+        # Built-ins appear before user commands
+        assert "✓ Approve" in labels
+        assert "✗ Request Changes" in labels
+        assert "↻ Refresh" in labels
+        assert "Checkout PR" in labels
+        assert "Open in browser" in labels
+        assert labels.index("✓ Approve") < labels.index("Checkout PR")

@@ -55,6 +55,11 @@ class CommandPalette(ModalScreen[str | None]):
         self._actions = actions
         self._filtered_actions = list(actions)
 
+    @property
+    def action_labels(self) -> list[str]:
+        """Return the display labels of all actions in order."""
+        return [label for _aid, label in self._actions]
+
     def compose(self) -> ComposeResult:
         with Vertical(id="palette-container"):
             yield Static("Actions", id="palette-title")
