@@ -22,9 +22,8 @@ from forge_triage.github_pr import (
     fetch_pr_metadata,
     fetch_review_threads,
     post_review_reply,
-    resolve_review_thread,
+    set_review_thread_resolved,
     submit_review,
-    unresolve_review_thread,
 )
 from forge_triage.messages import (
     ErrorResult,
@@ -228,10 +227,7 @@ async def _handle_resolve_thread(
 ) -> ResolveThreadResult:
     """Resolve or unresolve a review thread."""
     _ = conn  # not needed for the mutation itself
-    if req.resolve:
-        await resolve_review_thread(token, req.thread_node_id)
-    else:
-        await unresolve_review_thread(token, req.thread_node_id)
+    await set_review_thread_resolved(token, req.thread_node_id, resolve=req.resolve)
     return ResolveThreadResult(notification_id=req.notification_id, success=True)
 
 

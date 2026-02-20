@@ -9,7 +9,7 @@ from forge_triage.github_pr import (
     fetch_review_threads,
     parse_pr_metadata_response,
     parse_review_threads_response,
-    resolve_review_thread,
+    set_review_thread_resolved,
 )
 
 if TYPE_CHECKING:
@@ -341,7 +341,7 @@ async def test_fetch_review_threads_pagination(httpx_mock: HTTPXMock) -> None:
 
 
 async def test_resolve_thread_returns_false_on_graphql_errors(httpx_mock: HTTPXMock) -> None:
-    """resolve_review_thread returns False when GraphQL response contains errors."""
+    """set_review_thread_resolved returns False when GraphQL response contains errors."""
     httpx_mock.add_response(
         url="https://api.github.com/graphql",
         json={
@@ -349,5 +349,5 @@ async def test_resolve_thread_returns_false_on_graphql_errors(httpx_mock: HTTPXM
             "errors": [{"message": "Could not resolve to a node with ID 'bad-id'"}],
         },
     )
-    result = await resolve_review_thread("ghp_test", "bad-id")
+    result = await set_review_thread_resolved("ghp_test", "bad-id", resolve=True)
     assert result is False

@@ -288,37 +288,15 @@ async def submit_review(
         return result
 
 
-async def resolve_review_thread(token: str, thread_node_id: str) -> bool:
-    """Resolve a review thread via GraphQL mutation. Returns True on success."""
-    mutation = """
-    mutation($threadId: ID!) {
-      resolveReviewThread(input: {threadId: $threadId}) {
-        thread { id isResolved }
-      }
-    }
-    """
-    async with httpx.AsyncClient(headers=_headers(token), timeout=REQUEST_TIMEOUT) as client:
-        response = await client.post(
-            GRAPHQL_URL,
-            json={"query": mutation, "variables": {"threadId": thread_node_id}},
-        )
-        response.raise_for_status()
-        body = response.json()
-        errors = body.get("errors")
-        if errors:
-            logger.warning("GraphQL errors: %s", errors)
-            return False
-        return True
-
-
-async def unresolve_review_thread(token: str, thread_node_id: str) -> bool:
-    """Unresolve a review thread via GraphQL mutation. Returns True on success."""
-    mutation = """
-    mutation($threadId: ID!) {
-      unresolveReviewThread(input: {threadId: $threadId}) {
-        thread { id isResolved }
-      }
-    }
+async def set_review_thread_resolved(token: str, thread_node_id: str, *, resolve: bool) -> bool:
+    """Resolve or unresolve a review thread via GraphQL mutation. Returns True on success."""
+    mutation_name = "resolveReviewThread" if resolve else "unresolveReviewThread"
+    mutation = f"""
+    mutation($threadId: ID!) {{
+      {mutation_name}(input: {{threadId: $threadId}}) {{
+        thread {{ id isResolved }}
+      }}
+    }}
     """
     async with httpx.AsyncClient(headers=_headers(token), timeout=REQUEST_TIMEOUT) as client:
         response = await client.post(
