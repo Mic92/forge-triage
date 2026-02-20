@@ -26,6 +26,8 @@ def _populate_db(conn: sqlite3.Connection) -> None:
             reason="review_requested",
             priority_score=1000,
             priority_tier="blocking",
+            # PR url → title rendered as **[#12345](url) Fix critical bug**
+            html_url="https://github.com/NixOS/nixpkgs/pull/12345",
         ).as_dict(),
     )
     upsert_notification(
@@ -48,6 +50,30 @@ def _populate_db(conn: sqlite3.Connection) -> None:
             priority_tier="fyi",
         ).as_dict(),
     )
+    # Plain URL (no PR/issue number) → title rendered as **[Discuss architecture](url)**
+    upsert_notification(
+        conn,
+        NotificationRow(
+            notification_id="1004",
+            subject_title="Discuss architecture",
+            reason="subscribed",
+            priority_score=50,
+            priority_tier="fyi",
+            html_url="https://github.com/NixOS/nixpkgs/discussions/42",
+        ).as_dict(),
+    )
+    # No URL → title rendered as **Commit note**
+    upsert_notification(
+        conn,
+        NotificationRow(
+            notification_id="1005",
+            subject_title="Commit note",
+            reason="subscribed",
+            priority_score=10,
+            priority_tier="fyi",
+            html_url="",
+        ).as_dict(),
+    )
 
 
 async def test_tui_shows_notifications(tmp_db: sqlite3.Connection) -> None:
@@ -57,7 +83,7 @@ async def test_tui_shows_notifications(tmp_db: sqlite3.Connection) -> None:
     app = TriageApp(conn=tmp_db)
     async with app.run_test():
         nlist = app.query_one(NotificationList)
-        assert nlist.row_count == 3
+        assert nlist.row_count == 5
         # First row should be highest priority
         assert nlist.selected_notification_id == "1001"
 
@@ -88,7 +114,7 @@ async def test_mark_done_posts_request(tmp_db: sqlite3.Connection) -> None:
 
         await pilot.press("d")
         await pilot.pause()
-        assert nlist.row_count == 2
+        assert nlist.row_count == 4
         req = req_q.get_nowait()
         assert isinstance(req, MarkDoneRequest)
         assert req.notification_ids == ("1001",)
@@ -125,13 +151,21 @@ async def test_vim_jk_navigation(tmp_db: sqlite3.Connection) -> None:
 
 
 async def test_detail_pane_updates_on_cursor_move(tmp_db: sqlite3.Connection) -> None:
-    """Detail pane updates when the cursor moves to a different notification."""
+    """Detail pane updates when the cursor moves to a different notification.
+
+    Also covers the three title-rendering branches added in _format_title:
+    - PR/issue URL  → **[#NNN](url) Title**
+    - plain URL     → **[Title](url)**
+    - no URL        → **Title**
+    """
     _populate_db(tmp_db)
     app = TriageApp(conn=tmp_db)
 
     async with app.run_test() as pilot:
         detail = app.query_one(DetailPane)
-        # Initially shows first notification
+
+        # Row 1 (1001): PR url → **[#12345](url) Fix critical bug**
+        assert "[#12345](https://github.com/NixOS/nixpkgs/pull/12345)" in detail.source
         assert "Fix critical bug" in detail.source
 
         # Move down to second notification
@@ -144,6 +178,17 @@ async def test_detail_pane_updates_on_cursor_move(tmp_db: sqlite3.Connection) ->
         await pilot.pause()
         assert "Update docs" in detail.source
 
+        # Row 4 (1004): plain URL (discussion) → **[Discuss architecture](url)**
+        await pilot.press("j")
+        await pilot.pause()
+        assert "[Discuss architecture](https://github.com/NixOS/nixpkgs/discussions/42)" in detail.source
+
+        # Row 5 (1005): no URL → **Commit note**
+        await pilot.press("j")
+        await pilot.pause()
+        assert "**Commit note**" in detail.source
+        assert "](http" not in detail.source
+
 
 async def test_refresh_reloads_from_db(tmp_db: sqlite3.Connection) -> None:
     """Pressing r refreshes the notification list from the database."""
@@ -152,13 +197,13 @@ async def test_refresh_reloads_from_db(tmp_db: sqlite3.Connection) -> None:
 
     async with app.run_test() as pilot:
         nlist = app.query_one(NotificationList)
-        assert nlist.row_count == 3
+        assert nlist.row_count == 5
 
         # Insert a new notification directly into the DB (simulating a background sync)
         upsert_notification(
             tmp_db,
             NotificationRow(
-                notification_id="1004",
+                notification_id="1006",
                 subject_title="New hotfix",
                 reason="assign",
                 priority_score=900,
@@ -166,12 +211,12 @@ async def test_refresh_reloads_from_db(tmp_db: sqlite3.Connection) -> None:
             ).as_dict(),
         )
 
-        # List still shows 3 until we refresh
-        assert nlist.row_count == 3
+        # List still shows 5 until we refresh
+        assert nlist.row_count == 5
 
         await pilot.press("r")
         await pilot.pause()
-        assert nlist.row_count == 4
+        assert nlist.row_count == 6
 
 
 async def test_quit(tmp_db: sqlite3.Connection) -> None:

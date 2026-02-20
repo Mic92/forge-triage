@@ -3,15 +3,31 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import TYPE_CHECKING
 
 from textual.widgets import Markdown
 
-from forge_triage.db import get_notification, update_last_viewed
+from forge_triage.db import Notification, get_notification, update_last_viewed
 from forge_triage.pr_db import get_pr_details
 
 if TYPE_CHECKING:
     import sqlite3
+
+# TODO(Mic92): do we want to include into the database?
+# https://github.com/nix-community/nix-direnv/issues/695
+# https://github.com/nix-community/nur-packages-template/pull/112
+ISSUE_OR_PR_NUMBER = re.compile(r".+/(?:pull|issues)/([0-9]+)")
+
+
+def _format_title(notif: Notification) -> str:
+    subject_number = ""
+    if notif.html_url and (match := ISSUE_OR_PR_NUMBER.match(notif.html_url)):
+        subject_number = f"[#{match.group(1)}]({notif.html_url}) "
+        return f"**{subject_number}{notif.subject_title}**\n"
+    if notif.html_url:
+        return f"**[{notif.subject_title}]({notif.html_url})**\n"
+    return f"**{notif.subject_title}**\n"
 
 
 class DetailPane(Markdown):
@@ -37,7 +53,9 @@ class DetailPane(Markdown):
         update_last_viewed(self._conn, notification_id)
 
         parts: list[str] = []
-        parts.append(f"## {notif.subject_title}")
+
+        parts.append(_format_title(notif))
+
         meta_parts = [
             f"{notif.repo_owner}/{notif.repo_name}",
             notif.subject_type,
