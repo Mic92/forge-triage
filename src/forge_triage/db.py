@@ -500,46 +500,29 @@ def purge_stale_notifications(
     return purged
 
 
-_WRITE_KEYWORDS = ("INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE")
-
-
-class SqlWriteBlockedError(Exception):
-    """Raised when a write operation is attempted without --write."""
-
-
 @dataclass
 class SqlResult:
     """Result of a SQL query execution."""
 
     columns: list[str] | None
     rows: list[tuple[object, ...]]
-    is_write: bool
 
 
 def execute_sql(
     conn: sqlite3.Connection,
     query: str,
-    *,
-    allow_write: bool = False,
 ) -> SqlResult:
     """Execute a raw SQL query, optionally blocking writes.
 
     Raises:
         SqlWriteBlockedError: If query is a write operation and allow_write is False.
     """
-    stripped = query.strip().upper()
-    is_write = any(stripped.startswith(kw) for kw in _WRITE_KEYWORDS)
-
-    if is_write and not allow_write:
-        msg = "Write operations are blocked by default. Use --write to allow."
-        raise SqlWriteBlockedError(msg)
-
     cursor = conn.execute(query)
 
     if cursor.description is None:
         conn.commit()
-        return SqlResult(columns=None, rows=[], is_write=True)
+        return SqlResult(columns=None, rows=[])
 
     columns = [d[0] for d in cursor.description]
     rows = [tuple(row) for row in cursor.fetchall()]
-    return SqlResult(columns=columns, rows=rows, is_write=False)
+    return SqlResult(columns=columns, rows=rows)

@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING
 
 from forge_triage.cli import _parse_ref
 from forge_triage.db import (
-    SqlWriteBlockedError,
     execute_sql,
     list_notifications,
     upsert_notification,
@@ -41,12 +40,6 @@ def test_parse_ref_non_numeric_number() -> None:
     """_parse_ref exits when number part is not a digit."""
     with pytest.raises(SystemExit):
         _parse_ref("NixOS/nixpkgs#abc")
-
-
-def test_execute_sql_blocks_write_by_default(tmp_db: sqlite3.Connection) -> None:
-    """execute_sql raises SqlWriteBlockedError for writes without allow_write."""
-    with pytest.raises(SqlWriteBlockedError):
-        execute_sql(tmp_db, "DROP TABLE notifications")
 
 
 def test_execute_sql_allows_read(tmp_db: sqlite3.Connection) -> None:

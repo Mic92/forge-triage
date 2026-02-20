@@ -9,7 +9,6 @@ import sys
 
 from forge_triage.db import (
     Notification,
-    SqlWriteBlockedError,
     delete_notification,
     execute_sql,
     get_notification_ids_by_reason,
@@ -127,10 +126,7 @@ def _cmd_sql(args: argparse.Namespace) -> None:
     """Execute a raw SQL query against the database."""
     conn = open_db()
     try:
-        result = execute_sql(conn, args.query, allow_write=args.write)
-    except SqlWriteBlockedError as e:
-        print(str(e), file=sys.stderr)
-        sys.exit(1)
+        result = execute_sql(conn, args.query)
     except Exception as e:  # noqa: BLE001
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
@@ -280,7 +276,6 @@ def main(argv: list[str] | None = None) -> None:
     sql_parser = subparsers.add_parser("sql", help="Execute raw SQL query")
     sql_parser.add_argument("query", help="SQL query to execute")
     sql_parser.add_argument("--json", action="store_true", help="Output as JSON")
-    sql_parser.add_argument("--write", action="store_true", help="Allow write operations")
 
     # done
     done_parser = subparsers.add_parser("done", help="Mark notifications as done")
