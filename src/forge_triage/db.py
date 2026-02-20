@@ -227,6 +227,16 @@ def init_db(path: Path) -> sqlite3.Connection:
     return conn
 
 
+def open_memory_db() -> sqlite3.Connection:
+    """Create an in-memory database with the full schema applied (for tests)."""
+    conn = sqlite3.connect(":memory:")
+    conn.execute("PRAGMA foreign_keys=ON")
+    conn.row_factory = sqlite3.Row
+    conn.executescript(_SCHEMA)
+    _run_migrations(conn)
+    return conn
+
+
 def open_db() -> sqlite3.Connection:
     """Open the database at the default XDG path."""
     return init_db(get_db_path())

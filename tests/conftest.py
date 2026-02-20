@@ -8,12 +8,11 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from forge_triage.db import init_db
+from forge_triage.db import open_memory_db
 
 if TYPE_CHECKING:
     import sqlite3
     from collections.abc import Generator
-    from pathlib import Path
 
 
 SAMPLE_NOTIFICATION_JSON = {
@@ -98,10 +97,9 @@ class NotificationRow:
 
 
 @pytest.fixture
-def tmp_db(tmp_path: Path) -> Generator[sqlite3.Connection]:
-    """Create a temporary SQLite database with the full schema."""
-    db_path = tmp_path / "test.db"
-    conn = init_db(db_path)
+def tmp_db() -> Generator[sqlite3.Connection]:
+    """Create an in-memory SQLite database with the full schema."""
+    conn = open_memory_db()
     try:
         yield conn
     finally:
