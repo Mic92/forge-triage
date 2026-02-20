@@ -11,6 +11,7 @@ from forge_triage.db import (
     delete_notification,
     get_notification,
     get_unloaded_top_notification_ids,
+    map_raw_comments,
     mark_comments_loaded,
     upsert_comments,
 )
@@ -103,17 +104,7 @@ async def _handle_fetch_comments(
         return FetchCommentsResult(notification_id=req.notification_id, comment_count=0)
 
     raw_comments = await fetch_comments(token, comments_url)
-    db_comments = [
-        {
-            "comment_id": str(c["id"]),
-            "notification_id": req.notification_id,
-            "author": c["user"]["login"] if c.get("user") else "[deleted]",
-            "body": c["body"],
-            "created_at": c["created_at"],
-            "updated_at": c["updated_at"],
-        }
-        for c in raw_comments
-    ]
+    db_comments = map_raw_comments(raw_comments, req.notification_id)
     upsert_comments(conn, db_comments)
     mark_comments_loaded(conn, req.notification_id)
     return FetchCommentsResult(notification_id=req.notification_id, comment_count=len(db_comments))

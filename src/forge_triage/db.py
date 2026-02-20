@@ -7,6 +7,7 @@ import os
 import sqlite3
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Any
 
 _SCHEMA = importlib.resources.files(__package__).joinpath("schema.sql").read_text()
 
@@ -298,6 +299,24 @@ def upsert_notification(conn: sqlite3.Connection, row: dict[str, str | int | Non
             {**row, "comments_loaded": comments_loaded},
         )
     conn.commit()
+
+
+def map_raw_comments(
+    raw_comments: list[dict[str, Any]],
+    notification_id: str,
+) -> list[dict[str, str]]:
+    """Map raw GitHub API comment dicts to the shape expected by upsert_comments."""
+    return [
+        {
+            "comment_id": str(c["id"]),
+            "notification_id": notification_id,
+            "author": c["user"]["login"] if c.get("user") else "[deleted]",
+            "body": c["body"],
+            "created_at": c["created_at"],
+            "updated_at": c["updated_at"],
+        }
+        for c in raw_comments
+    ]
 
 
 def upsert_comments(conn: sqlite3.Connection, comments: list[dict[str, str]]) -> None:

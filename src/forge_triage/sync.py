@@ -12,6 +12,7 @@ from forge_triage.db import (
     get_notification,
     get_notification_count,
     get_top_notifications_for_preload,
+    map_raw_comments,
     mark_comments_loaded,
     purge_all_notifications,
     purge_stale_notifications,
@@ -147,17 +148,7 @@ async def _preload_comments_for_top_n(
                 if url is None:
                     return
                 comments = await fetch_comments(token, url)
-                db_comments = [
-                    {
-                        "comment_id": str(c["id"]),
-                        "notification_id": notification_id,
-                        "author": c["user"]["login"] if c.get("user") else "[deleted]",
-                        "body": c["body"],
-                        "created_at": c["created_at"],
-                        "updated_at": c["updated_at"],
-                    }
-                    for c in comments
-                ]
+                db_comments = map_raw_comments(comments, notification_id)
                 upsert_comments(conn, db_comments)
                 mark_comments_loaded(conn, notification_id)
             except Exception:  # noqa: BLE001
