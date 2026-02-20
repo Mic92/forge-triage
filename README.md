@@ -23,7 +23,7 @@ keeps everything in a local SQLite database for instant access.
   NixOS/nixpkgs  •  PullRequest  •  review_requested
   CI: success
 
- q Quit  ? Help  d Done  D Bulk Done  o Open  / Filter  r Refresh
+ q Quit  ? Help  d Done  o Open  / Filter  r Refresh  : Actions
 ```
 
 ## Features
@@ -36,10 +36,17 @@ keeps everything in a local SQLite database for instant access.
 - **Split-pane TUI** — Upper pane lists notifications with nerdfont
   state icons (open/closed/merged); lower pane shows metadata, CI status,
   and comments.
+- **Full-screen detail view** — Press `Enter` to open a PR or issue in a
+  dedicated screen. PRs get a two-tab layout (Conversation / Files Changed)
+  with vim-style scrolling and in-screen text search.
+- **Command palette** — Press `:` on any PR to run built-in review actions
+  (Approve, Request Changes, Refresh) or your own user-defined commands.
+- **User-defined commands** — Configure arbitrary commands in
+  `~/.config/forge-triage/commands.toml` with template variables
+  (`{pr_number}`, `{branch}`, `{repo}`, …), optional `cwd`, and `env` overrides.
 - **Vim keybindings** — `j`/`k` navigation, `d` to mark done, `o` to
-  open in browser, `/` to filter.
-- **Batch operations** — Select with `x`, select all with `*`, bulk
-  dismiss with `D`.
+  open in browser, `/` to filter, `g`/`G` to jump, `Ctrl+d`/`Ctrl+u` to
+  scroll half-page.
 - **Comment pre-loading** — Top priority notifications have their
   comments fetched automatically during sync.
 - **GraphQL batch fetching** — PR/issue state and CI status are fetched
@@ -119,20 +126,97 @@ forge-triage sql "SELECT count(*) FROM notifications WHERE priority_tier = 'bloc
 
 ## Keybindings
 
-| Key       | Action                 |
-|-----------|------------------------|
-| `j` / `↓` | Move down             |
-| `k` / `↑` | Move up               |
-| `d`       | Mark done (single)     |
-| `D`       | Mark done (selected)   |
-| `x`       | Toggle selection       |
-| `*`       | Select all visible     |
-| `o`       | Open in browser        |
-| `/`       | Filter by text         |
-| `r`       | Refresh list           |
-| `Escape`  | Clear filter           |
-| `?`       | Help                   |
-| `q`       | Quit                   |
+### Main list
+
+| Key        | Action                        |
+|------------|-------------------------------|
+| `j` / `↓`  | Move down                     |
+| `k` / `↑`  | Move up                       |
+| `Enter`    | Open detail view              |
+| `d`        | Mark done                     |
+| `o`        | Open in browser               |
+| `/`        | Filter by text                |
+| `Escape`   | Clear filter                  |
+| `:`        | Open command palette (PR only)|
+| `r`        | Refresh list                  |
+| `?`        | Help                          |
+| `q`        | Quit                          |
+
+### Detail view
+
+| Key             | Action                        |
+|-----------------|-------------------------------|
+| `j` / `k`       | Scroll down / up              |
+| `g` / `Home`    | Jump to top                   |
+| `G` / `End`     | Jump to bottom                |
+| `Ctrl+d`        | Scroll half-page down         |
+| `Ctrl+u`        | Scroll half-page up           |
+| `1` / `2`       | Switch to Conversation / Files Changed tab |
+| `Tab`           | Next tab                      |
+| `Shift+Tab` / `h` / `l` | Prev / next tab      |
+| `/`             | Search in current tab         |
+| `n` / `N`       | Next / previous search match  |
+| `:`             | Open command palette          |
+| `r`             | Refresh from GitHub API       |
+| `o`             | Open in browser               |
+| `d`             | Mark done and go back         |
+| `q` / `Escape`  | Go back                       |
+| `?`             | Help                          |
+
+## User-defined commands
+
+Create `~/.config/forge-triage/commands.toml` to add commands to the `:` palette:
+
+```toml
+[[commands]]
+name = "Checkout PR"
+args = ["gh", "pr", "checkout", "{pr_number}"]
+mode = "foreground"
+
+[[commands]]
+name = "Open CI"
+args = ["open", "https://github.com/{repo}/actions"]
+mode = "background"
+```
+
+**Fields:**
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `name` | ✓ | Label shown in the palette |
+| `args` | ✓ | Command and arguments as a list (no shell interpolation) |
+| `mode` | ✓ | `"foreground"` suspends the TUI; `"background"` fires and forgets |
+| `cwd`  | | Working directory (supports template vars and `~`/`$HOME`) |
+| `env`  | | Extra environment variables merged on top of the current env |
+
+**Template variables** available in `args`, `cwd`, and `env` values:
+
+| Variable | Available | Description |
+|----------|-----------|-------------|
+| `{repo}` | Always | `owner/name` e.g. `NixOS/nixpkgs` |
+| `{repo_owner}` | Always | e.g. `NixOS` |
+| `{repo_name}` | Always | e.g. `nixpkgs` |
+| `{pr_number}` | After PR details load | PR number as a string |
+| `{branch}` | After PR details load | Head branch name |
+
+**Example — workmux + nixpkgs-review:**
+
+```toml
+[[commands]]
+name = "Checkout PR (workmux)"
+args = ["workmux", "add", "--pr", "{pr_number}", "--open-if-exists"]
+cwd = "$HOME/git/{repo_name}"
+mode = "foreground"
+
+[commands.env]
+GH_REPO = "{repo}"
+
+[[commands]]
+name = "nixpkgs-review PR"
+args = ["tmux", "new-window", "nixpkgs-review pr {pr_number}; $SHELL"]
+cwd = "$HOME/git/{repo_name}"
+mode = "background"
+```
 
 ## Development
 
@@ -143,9 +227,9 @@ nix develop
 pytest
 
 # Type checking
-mypy
+mypy src/ tests/
 
 # Lint + format
-ruff check .
-ruff format .
+ruff check src/ tests/
+ruff format src/ tests/
 ```
